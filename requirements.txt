@@ -1,0 +1,10 @@
+# GPU runtime libs for CTranslate2 (faster-whisper) on Windows
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
+nvidia-cuda-runtime-cu12
+
+# Speech-to-text stack (default engine: faster-whisper)
+RealtimeSTT[faster-whisper]
+
+# Local Silero VAD (ONNX) — avoids interactive torch.hub download prompt
+silero-vad[onnx-cpu]
