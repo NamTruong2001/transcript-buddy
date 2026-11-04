@@ -2,9 +2,10 @@
 
 ## 2026-11-05 — Deploy Dokploy (new-home-server) + GitHub
 
-- Push repo GitHub; Dokploy compose sourceType `github` (provider đã link).
-- Root `docker-compose.yml` (ports frontend `5180`, edge `8010`); AGENT_URL mặc định `ws://100.65.100.110:8100/ws`.
-- E2E sau deploy: UI → edge container → Windows Whisper agent qua Tailscale.
+- Repo: https://github.com/NamTruong2001/transcript-buddy
+- Dokploy project **Transcript Buddy**, compose `transcript-buddy` (`github` + provider link), root `./docker-compose.yml`.
+- Ports: UI `5180`, edge `8010`; `AGENT_URL=ws://100.65.100.110:8100/ws`.
+- E2E pass: FE `/api/health` → edge → agent; JFK STT + Ollama summary OK.
 
 ## 2026-11-05 — Windows Service TranscriptWhisper (C# stub)
 
