@@ -116,6 +116,12 @@
         }
       }
 
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        throw new Error(
+          'Trình duyệt chặn mic trên HTTP. Mở bằng HTTPS: https://new-home-server.tailae2496.ts.net:5180 (hoặc localhost).',
+        )
+      }
+
       localStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,

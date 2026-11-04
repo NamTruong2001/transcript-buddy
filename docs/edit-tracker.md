@@ -1,5 +1,11 @@
 # Edit tracker
 
+## 2026-11-05 — Fix mic trên mobile: bắt buộc HTTPS
+
+- Lỗi `navigator.mediaDevices.getUserMedia` undefined khi mở `http://new-home-server:5180`.
+- Bật Tailscale Serve: `https://new-home-server.tailae2496.ts.net:5180`.
+- UI báo lỗi rõ nếu không phải secure context.
+
 ## 2026-11-05 — Deploy Dokploy (new-home-server) + GitHub
 
 - Repo: https://github.com/NamTruong2001/transcript-buddy

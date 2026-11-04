@@ -13,8 +13,12 @@ Topology:
 
 | Service | URL (Tailscale) |
 | --- | --- |
-| UI | http://100.116.37.109:5180 / http://new-home-server:5180 |
+| UI (HTTPS — dùng cái này trên điện thoại) | https://new-home-server.tailae2496.ts.net:5180 |
+| UI (HTTP) | http://100.116.37.109:5180 — **không** dùng cho mic trên mobile |
 | Edge API | http://100.116.37.109:8010 / via UI `/api/` |
+
+> Mic/`getUserMedia` chỉ hoạt động trên **secure context** (HTTPS hoặc localhost).  
+> HTTPS được expose bằng `tailscale serve --https=5180` trên `new-home-server`.
 
 Redeploy: Dokploy UI → Deploy, hoặc API `compose.deploy` với `composeId` của service.
 
