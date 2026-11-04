@@ -84,19 +84,36 @@ async def stop_session(session_id: str):
     session = MANAGER.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
-    await MANAGER.stop(session)
-    # wait briefly for summary.done via queue
-    summary = None
     try:
-        while True:
-            event = await asyncio_wait_event(session, timeout=90.0)
-            if event.get("type") == "summary.done":
-                summary = event
-                break
-            if event.get("type") == "error" and "summarize" in (event.get("message") or ""):
-                raise HTTPException(status_code=502, detail=event.get("message"))
-    except TimeoutError as exc:
-        raise HTTPException(status_code=504, detail="summarize timeout") from exc
+        fallback = await MANAGER.stop(session)
+    except Exception as exc:
+        log.exception("stop/summarize failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    summary = fallback
+    if summary is None:
+        # wait for summary.done via agent WS queue
+        try:
+            while True:
+                event = await asyncio_wait_event(session, timeout=180.0)
+                if event.get("type") == "summary.done":
+                    summary = event
+                    break
+                if event.get("type") == "error" and "summarize" in (event.get("message") or ""):
+                    raise HTTPException(status_code=502, detail=event.get("message"))
+        except TimeoutError as exc:
+            # last resort: HTTP summarize with whatever finals we have
+            log.warning("summary.done timeout; trying HTTP fallback")
+            try:
+                from .agent_client import agent_summarize
+
+                result = await agent_summarize("\n".join(session.finals).strip())
+                summary = {
+                    "transcript": result.get("transcript") or "\n".join(session.finals),
+                    "summary": result.get("summary") or "",
+                }
+            except Exception as fallback_exc:
+                raise HTTPException(status_code=504, detail="summarize timeout") from fallback_exc
     return {
         "session_id": session_id,
         "transcript": summary.get("transcript") if summary else "\n".join(session.finals),

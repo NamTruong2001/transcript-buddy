@@ -1,5 +1,11 @@
 # Edit tracker
 
+## 2026-11-05 — Fix summarize fail (WS keepalive timeout)
+
+- Edge log: `keepalive ping timeout` → `session.stop` không gửi được → Stop 500.
+- Tăng `ping_timeout` WS; thêm `POST /summarize` HTTP fallback; Ollama `think:false` (qwen3.5 nhanh hơn).
+- Frontend: giữ eventsWs tới khi stop xong; không đóng sớm.
+
 ## 2026-11-05 — Fix mic trên mobile: bắt buộc HTTPS
 
 - Lỗi `navigator.mediaDevices.getUserMedia` undefined khi mở `http://new-home-server:5180`.

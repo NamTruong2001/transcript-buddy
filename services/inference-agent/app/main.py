@@ -86,6 +86,11 @@ class WarmupBody(BaseModel):
     models: list[str] = Field(default_factory=list)
 
 
+class SummarizeBody(BaseModel):
+    transcript: str = ""
+    model: str | None = None
+
+
 @app.get("/health")
 async def health():
     models = list_local_models()
@@ -138,6 +143,18 @@ async def warmup(body: WarmupBody, authorization: str | None = Header(default=No
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"loaded": loaded, "all_loaded": POOL.loaded()}
+
+
+@app.post("/summarize")
+async def summarize(body: SummarizeBody, authorization: str | None = Header(default=None)):
+    """HTTP fallback khi WebSocket agent bị đứt (keepalive timeout)."""
+    _check_token(authorization=authorization)
+    try:
+        summary = await summarize_transcript(body.transcript, model=body.model)
+    except Exception as exc:
+        log.exception("HTTP summarize failed")
+        raise HTTPException(status_code=502, detail=f"summarize failed: {exc}") from exc
+    return {"transcript": body.transcript, "summary": summary}
 
 
 @app.websocket("/ws")

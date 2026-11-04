@@ -45,6 +45,20 @@ async def agent_list_models() -> list[dict[str, Any]]:
         return resp.json().get("models") or []
 
 
+async def agent_summarize(transcript: str) -> dict[str, Any]:
+    """HTTP fallback when the per-session agent WebSocket is already closed."""
+    base = http_base_from_ws(AGENT_URL)
+    headers = {"Authorization": f"Bearer {AGENT_TOKEN}"}
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        resp = await client.post(
+            f"{base}/summarize",
+            headers=headers,
+            json={"transcript": transcript},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 class SessionAgentLink:
     """One WebSocket to the Windows inference agent per browser session."""
 
@@ -54,6 +68,19 @@ class SessionAgentLink:
         self._recv_task: asyncio.Task | None = None
         self._open_future: asyncio.Future | None = None
 
+    @property
+    def connected(self) -> bool:
+        ws = self._ws
+        if ws is None:
+            return False
+        # websockets asyncio client: .state / .protocol vary by version
+        try:
+            return bool(getattr(ws, "state", None) and ws.state.name == "OPEN") or (
+                not getattr(ws, "close_code", None) and ws is not None
+            )
+        except Exception:
+            return self._ws is not None
+
     async def connect_and_open(
         self,
         session_id: str,
@@ -62,7 +89,14 @@ class SessionAgentLink:
     ) -> dict[str, Any]:
         url = f"{AGENT_URL}?token={AGENT_TOKEN}"
         log.info("agent connect session=%s", session_id)
-        self._ws = await ws_connect(url, max_size=8 * 1024 * 1024)
+        # GPU STT có thể làm pong chậm → tăng ping_timeout, tránh đứt WS trước Stop
+        self._ws = await ws_connect(
+            url,
+            max_size=8 * 1024 * 1024,
+            ping_interval=30,
+            ping_timeout=120,
+            close_timeout=5,
+        )
         loop = asyncio.get_running_loop()
         self._open_future = loop.create_future()
         self._recv_task = asyncio.create_task(self._recv_loop())

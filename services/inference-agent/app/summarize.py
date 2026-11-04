@@ -19,6 +19,8 @@ async def summarize_transcript(transcript: str, model: str | None = None) -> str
     payload = {
         "model": model or OLLAMA_MODEL,
         "stream": False,
+        # qwen3.x thinking làm chậm / đôi khi content rỗng — tắt khi summarize
+        "think": False,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {
@@ -31,7 +33,12 @@ async def summarize_transcript(transcript: str, model: str | None = None) -> str
         resp = await client.post(f"{OLLAMA_URL}/api/chat", json=payload)
         resp.raise_for_status()
         data = resp.json()
-    return (data.get("message") or {}).get("content") or ""
+    msg = data.get("message") or {}
+    content = (msg.get("content") or "").strip()
+    if not content:
+        # một số bản Ollama nhét text vào thinking nếu think không được tôn trọng
+        content = (msg.get("thinking") or "").strip()
+    return content
 
 
 async def ollama_alive() -> bool:

@@ -8,7 +8,7 @@ from typing import Any
 
 from aiortc import RTCPeerConnection, RTCSessionDescription
 
-from .agent_client import SessionAgentLink
+from .agent_client import SessionAgentLink, agent_summarize
 from .webrtc_audio import pump_audio_track
 
 log = logging.getLogger("edge.sessions")
@@ -104,16 +104,48 @@ class SessionManager:
         assert pc.localDescription is not None
         return {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}
 
-    async def stop(self, session: Session) -> None:
+    async def stop(self, session: Session) -> dict[str, Any] | None:
+        """Stop recording and request summary.
+
+        Returns a summary.done-like dict when HTTP fallback was used; otherwise None
+        and the caller should wait for the agent WebSocket summary.done event.
+        """
         session.state = "summarizing"
         if session.audio_task:
             session.audio_task.cancel()
             session.audio_task = None
         if session.pc:
-            await session.pc.close()
+            try:
+                await session.pc.close()
+            except Exception:
+                pass
             session.pc = None
+
+        transcript = "\n".join(session.finals).strip()
         if session.agent:
-            await session.agent.stop()
+            try:
+                await session.agent.stop()
+                return None
+            except Exception as exc:
+                log.warning("agent WS stop failed (%s); HTTP summarize fallback", exc)
+
+        # Fallback: WS đã chết (keepalive timeout) → tóm tắt qua HTTP với finals đã có
+        try:
+            result = await agent_summarize(transcript)
+        except Exception as exc:
+            log.exception("HTTP summarize fallback failed")
+            raise RuntimeError(f"summarize failed: {exc}") from exc
+        summary = result.get("summary") or ""
+        session.summary = summary
+        session.state = "summarized"
+        event = {
+            "type": "summary.done",
+            "session_id": session.id,
+            "transcript": result.get("transcript") or transcript,
+            "summary": summary,
+        }
+        await session.queue.put(event)
+        return event
 
     async def close(self, session: Session) -> None:
         try:

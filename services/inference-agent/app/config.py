@@ -21,7 +21,7 @@ PRELOAD_MODELS = [
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3.5:4b")
-OLLAMA_TIMEOUT_S = float(os.environ.get("OLLAMA_TIMEOUT_S", "60"))
+OLLAMA_TIMEOUT_S = float(os.environ.get("OLLAMA_TIMEOUT_S", "180"))
 
 DEVICE = os.environ.get("STT_DEVICE", "cuda")
 COMPUTE_TYPE = os.environ.get("STT_COMPUTE_TYPE", "float16")

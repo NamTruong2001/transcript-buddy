@@ -170,14 +170,33 @@
     status = 'summarizing'
     recording = false
     try {
-      await cleanupMedia(false)
+      // Dừng mic/WebRTC trước, nhưng giữ eventsWs tới khi có summary
+      if (localStream) {
+        localStream.getTracks().forEach((t) => t.stop())
+        localStream = null
+      }
+      if (pc) {
+        pc.close()
+        pc = null
+      }
       const result = await stopSession(sessionId)
       summary = result.summary || ''
       if (result.finals?.length) finals = result.finals
+      else if (result.transcript) {
+        finals = String(result.transcript)
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      }
       status = 'summarized'
     } catch (e: any) {
       error = e?.message || String(e)
       status = 'error'
+    } finally {
+      if (eventsWs) {
+        eventsWs.close()
+        eventsWs = null
+      }
     }
   }
 
