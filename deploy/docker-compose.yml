@@ -11,7 +11,7 @@ services:
       EDGE_PORT: "8000"
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
     ports:
-      - "8010:8000"
+      - "127.0.0.1:8010:8000"
     networks:
       - tb
 
@@ -22,7 +22,7 @@ services:
         VITE_EDGE_URL: ""
     restart: unless-stopped
     ports:
-      - "5180:80"
+      - "127.0.0.1:5180:80"
     depends_on:
       - edge-api
     networks:

@@ -14,8 +14,8 @@ Topology:
 | Service | URL (Tailscale) |
 | --- | --- |
 | UI (HTTPS — dùng cái này trên điện thoại) | https://new-home-server.tailae2496.ts.net:5180 |
-| UI (HTTP) | http://100.116.37.109:5180 — **không** dùng cho mic trên mobile |
-| Edge API | http://100.116.37.109:8010 / via UI `/api/` |
+| UI (HTTP local trên server) | http://127.0.0.1:5180 (Docker bind localhost; Tailscale Serve proxy HTTPS) |
+| Edge API | http://127.0.0.1:8010 trên server / via UI `/api/` |
 
 > Mic/`getUserMedia` chỉ hoạt động trên **secure context** (HTTPS hoặc localhost).  
 > HTTPS được expose bằng `tailscale serve --https=5180` trên `new-home-server`.
