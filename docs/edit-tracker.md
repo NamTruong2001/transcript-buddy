@@ -6,6 +6,7 @@
 - Nguyên nhân: nginx resolve hostname lúc start; DNS/`edge-api` chưa sẵn → crash loop.
 - Fix: `resolver 127.0.0.11` + `proxy_pass` qua biến; compose gắn chung network `tb`.
 - Thêm xung đột port: Tailscale Serve listen `100.x:5180` → Docker không bind `0.0.0.0:5180`; đổi publish `127.0.0.1:5180:80`.
+- `proxy_pass` có biến + URI path làm mất prefix `/api` → sửa thành `proxy_pass http://$edge_upstream;`
 
 ## 2026-11-05 — Fix summarize fail (WS keepalive timeout)
 
