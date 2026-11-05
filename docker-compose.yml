@@ -11,6 +11,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
     ports:
       - "8010:8000"
+    networks:
+      - tb
 
   frontend:
     build:
@@ -22,3 +24,9 @@ services:
       - "5180:80"
     depends_on:
       - edge-api
+    networks:
+      - tb
+
+networks:
+  tb:
+    driver: bridge

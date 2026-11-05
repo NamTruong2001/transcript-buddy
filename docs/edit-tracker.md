@@ -1,5 +1,11 @@
 # Edit tracker
 
+## 2026-11-05 — Fix frontend restart loop (nginx upstream edge-api)
+
+- Log: `host not found in upstream "edge-api"` → nginx exit 1 → Restarting.
+- Nguyên nhân: nginx resolve hostname lúc start; DNS/`edge-api` chưa sẵn → crash loop.
+- Fix: `resolver 127.0.0.11` + `proxy_pass` qua biến; compose gắn chung network `tb`.
+
 ## 2026-11-05 — Fix summarize fail (WS keepalive timeout)
 
 - Edge log: `keepalive ping timeout` → `session.stop` không gửi được → Stop 500.
