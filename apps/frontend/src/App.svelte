@@ -281,7 +281,7 @@
   }
 </script>
 
-<main class="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-8">
+<main class="mx-auto flex min-h-screen w-full max-w-5xl min-w-0 flex-col gap-6 px-4 py-8">
   <header class="space-y-2">
     <p class="text-xs tracking-[0.2em] text-[var(--accent)] uppercase">transcript-buddy</p>
     <h1 class="text-3xl font-semibold tracking-tight text-white sm:text-4xl">Realtime ASR</h1>
@@ -290,13 +290,13 @@
     </p>
   </header>
 
-  <div class="grid gap-4 md:grid-cols-[280px_1fr]">
-    <Card title="Controls">
-      <div class="space-y-4">
-        <label class="block space-y-1 text-sm">
+  <div class="grid min-w-0 gap-4 md:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+    <Card title="Controls" class="min-w-0">
+      <div class="min-w-0 space-y-4">
+        <label class="block min-w-0 space-y-1 text-sm">
           <span class="text-[var(--muted)]">STT model</span>
           <select
-            class="w-full rounded-md border border-[var(--border)] bg-[#121820] px-3 py-2"
+            class="w-full max-w-full rounded-md border border-[var(--border)] bg-[#121820] px-3 py-2"
             bind:value={selectedModel}
             disabled={recording}
           >
@@ -365,9 +365,11 @@
           {/if}
         </div>
 
-        <div class="rounded-md border border-[var(--border)] bg-[#121820] p-3 text-xs text-[var(--muted)]">
+        <div class="min-w-0 overflow-hidden rounded-md border border-[var(--border)] bg-[#121820] p-3 text-xs text-[var(--muted)]">
           <div>Status: <span class="text-[var(--text)]">{status}</span></div>
-          <div>Session: <span class="text-[var(--text)]">{sessionId || '—'}</span></div>
+          <div class="break-all">
+            Session: <span class="text-[var(--text)]">{sessionId || '—'}</span>
+          </div>
           <div>
             Agent:
             {#if health?.ok}
@@ -378,34 +380,36 @@
               …
             {/if}
           </div>
-          <div>
+          <div class="break-words">
             GPU loaded:
             <span class="text-[var(--text)]">{loadedModels.length ? loadedModels.join(', ') : '—'}</span>
           </div>
         </div>
 
         {#if error}
-          <p class="text-sm text-[var(--danger)]">{error}</p>
+          <p class="break-words text-sm text-[var(--danger)]">{error}</p>
         {/if}
       </div>
     </Card>
 
-    <div class="space-y-4">
-      <Card title="Live preview">
-        <div class="h-[7.5rem] overflow-hidden rounded-md border border-[var(--border)] bg-[#121820] px-3 py-2">
+    <div class="min-w-0 space-y-4">
+      <Card title="Live preview" class="min-w-0">
+        <div
+          class="max-h-[12rem] min-h-[7.5rem] min-w-0 overflow-y-auto overflow-x-hidden rounded-md border border-[var(--border)] bg-[#121820] px-3 py-2 sm:max-h-[14rem]"
+        >
           {#if partial}
-            <p class="line-clamp-3 text-sm text-[var(--live)]">{partial}</p>
+            <p class="break-words text-sm whitespace-pre-wrap text-[var(--live)]">{partial}</p>
           {:else if previewFinals.length}
-            <ul class="space-y-1 text-sm">
+            <ul class="min-w-0 space-y-2 text-sm">
               {#each previewFinals as line}
-                <li class="truncate text-[var(--text)]/90">{line}</li>
+                <li class="break-words whitespace-pre-wrap text-[var(--text)]/90">{line}</li>
               {/each}
             </ul>
           {:else}
             <p class="text-sm text-[var(--muted)]">Đang chờ giọng nói…</p>
           {/if}
         </div>
-        <div class="mt-3 flex flex-wrap gap-2">
+        <div class="mt-3 flex min-w-0 flex-wrap items-center gap-2">
           <Button
             variant="secondary"
             disabled={!hasTranscript}
@@ -422,20 +426,27 @@
         </div>
       </Card>
 
-      <Card title="Summary">
+      <Card title="Summary" class="min-w-0">
         {#if status === 'summarizing'}
           <p class="text-sm text-[var(--muted)]">Đang tóm tắt bằng qwen3.5:4b…</p>
         {:else if hasSummary}
-          <div class="flex flex-wrap items-center gap-2">
-            <Sparkles size={16} class="text-[var(--accent-2)]" />
-            <span class="text-sm text-[var(--text)]">Đã có bản tóm tắt</span>
-            <div class="flex flex-wrap gap-2">
-              <Button variant="secondary" onclick={() => (showSummaryModal = true)}>
-                <Eye size={16} /> Xem tóm tắt
-              </Button>
-              <Button variant="ghost" onclick={downloadSummary}>
-                <Download size={16} /> Tải tóm tắt
-              </Button>
+          <div class="flex min-w-0 flex-col gap-3">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
+              <Sparkles size={16} class="shrink-0 text-[var(--accent-2)]" />
+              <span class="text-sm text-[var(--text)]">Đã có bản tóm tắt</span>
+              <div class="flex flex-wrap gap-2">
+                <Button variant="secondary" onclick={() => (showSummaryModal = true)}>
+                  <Eye size={16} /> Xem tóm tắt
+                </Button>
+                <Button variant="ghost" onclick={downloadSummary}>
+                  <Download size={16} /> Tải tóm tắt
+                </Button>
+              </div>
+            </div>
+            <div
+              class="max-h-[10rem] min-w-0 overflow-y-auto rounded-md border border-[var(--border)] bg-[#121820] px-3 py-2 text-sm leading-relaxed break-words whitespace-pre-wrap text-[var(--text)]/90 sm:max-h-[12rem]"
+            >
+              {summary}
             </div>
           </div>
         {:else}
@@ -450,16 +461,16 @@
 
 <Modal bind:open={showTranscriptModal} title="Transcript đầy đủ">
   {#if finals.length}
-    <ol class="list-decimal space-y-3 pl-5">
+    <ol class="list-decimal space-y-3 break-words pl-5">
       {#each finals as line, i}
-        <li>
+        <li class="min-w-0">
           <span class="mr-2 text-xs text-[var(--muted)]">#{i + 1}</span>
-          <span class="whitespace-pre-wrap">{line}</span>
+          <span class="break-words whitespace-pre-wrap">{line}</span>
         </li>
       {/each}
     </ol>
   {:else if partial}
-    <p class="whitespace-pre-wrap text-[var(--live)]">{partial}</p>
+    <p class="break-words whitespace-pre-wrap text-[var(--live)]">{partial}</p>
   {:else}
     <p class="text-[var(--muted)]">Chưa có transcript.</p>
   {/if}
@@ -471,5 +482,5 @@
       <Download size={16} /> Tải về
     </Button>
   </div>
-  <div class="whitespace-pre-wrap leading-relaxed">{summary}</div>
+  <div class="break-words whitespace-pre-wrap leading-relaxed">{summary}</div>
 </Modal>

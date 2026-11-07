@@ -1,5 +1,10 @@
 # Edit tracker
 
+## 2026-11-07 — Live preview / summary responsive (không vỡ UI)
+
+- Bỏ `truncate` cắt ngang câu; dùng `break-words` + scroll trong khung cố định.
+- Grid/Card thêm `min-w-0` tránh overflow cột trên mobile.
+
 ## 2026-11-07 — UI: Dừng / Tóm tắt / Reset tách riêng
 
 - Bỏ nút gộp “Stop + Summarize”.

@@ -11,7 +11,7 @@
 
 <section
   class={cn(
-    'rounded-xl border border-[var(--border)] bg-[var(--panel)]/90 p-4 shadow-[0_10px_40px_rgba(0,0,0,0.25)] backdrop-blur',
+    'min-w-0 max-w-full rounded-xl border border-[var(--border)] bg-[var(--panel)]/90 p-4 shadow-[0_10px_40px_rgba(0,0,0,0.25)] backdrop-blur',
     className,
   )}
 >
