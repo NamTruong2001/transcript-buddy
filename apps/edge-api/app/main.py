@@ -8,7 +8,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .agent_client import agent_health, agent_list_models
+from .agent_client import agent_health, agent_list_models, agent_warmup
 from .config import CORS_ORIGINS, HOST, PORT
 from .sessions import MANAGER
 
@@ -35,6 +35,10 @@ class OfferBody(BaseModel):
     type: str = "offer"
 
 
+class WarmupBody(BaseModel):
+    models: list[str] = Field(default_factory=list)
+
+
 @app.get("/api/health")
 async def health():
     try:
@@ -50,6 +54,19 @@ async def models():
         return {"models": await agent_list_models()}
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"agent unreachable: {exc}") from exc
+
+
+@app.post("/api/warmup")
+async def warmup(body: WarmupBody):
+    """Preload Whisper model(s) on the Windows agent GPU (manual / UI button)."""
+    names = [m.strip() for m in body.models if m and m.strip()]
+    if not names:
+        raise HTTPException(status_code=400, detail="models required")
+    try:
+        return await agent_warmup(names)
+    except Exception as exc:
+        log.exception("warmup failed")
+        raise HTTPException(status_code=502, detail=f"warmup failed: {exc}") from exc
 
 
 @app.post("/api/sessions")

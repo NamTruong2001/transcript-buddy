@@ -34,6 +34,16 @@ export async function fetchHealth() {
   return res.json()
 }
 
+export async function warmupModels(models: string[]) {
+  const res = await fetch(apiUrl('/api/warmup'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ models }),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json() as Promise<{ loaded: string[]; all_loaded: string[] }>
+}
+
 export async function createSession(model: string, language?: string) {
   const res = await fetch(apiUrl('/api/sessions'), {
     method: 'POST',

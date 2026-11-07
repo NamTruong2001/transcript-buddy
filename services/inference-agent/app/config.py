@@ -11,11 +11,11 @@ PORT = int(os.environ.get("AGENT_PORT", "8100"))
 AGENT_TOKEN = os.environ.get("AGENT_TOKEN", "dev-agent-token-change-me")
 
 # Comma-separated Whisper models to load into GPU at process startup.
-# Example: PRELOAD_MODELS=tiny,small
-# Empty = listen on port first; load on first session.open / POST /warmup
+# Default empty: service chỉ listen port; load khi Start / POST /warmup / nút UI.
+# Ví dụ bật preload boot: PRELOAD_MODELS=tiny,small
 PRELOAD_MODELS = [
     m.strip()
-    for m in os.environ.get("PRELOAD_MODELS", "tiny,small").split(",")
+    for m in os.environ.get("PRELOAD_MODELS", "").split(",")
     if m.strip()
 ]
 

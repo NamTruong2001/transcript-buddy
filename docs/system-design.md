@@ -59,7 +59,7 @@ Process **riêng** listen TCP port (mặc định **8100**). Edge Linux chỉ gi
 | --- | --- |
 | `8100` | Bind Whisper backend |
 | `GET /health`, `GET /ready` | Sống / sẵn sàng |
-| `GET /models`, `POST /warmup` | Catalog + preload GPU |
+| `GET /models`, `POST /warmup` | Catalog + preload GPU (thủ công; mặc định không preload lúc boot) |
 | `WS /ws` | PCM + session control |
 | `11434` | Ollama (process khác, summarize) |
 

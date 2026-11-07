@@ -1,5 +1,11 @@
 # Edit tracker
 
+## 2026-11-07 — Lazy ASR load (không preload lúc boot)
+
+- Default `PRELOAD_MODELS=""`: service Windows chạy nhưng không nạp Whisper lên GPU khi boot.
+- UI nút **Load model** → `POST /api/warmup` → agent `/warmup`.
+- Bấm **Start** vẫn lazy-load model nếu chưa có trên GPU (`session.open` / `POOL.get`).
+
 ## 2026-11-05 — Fix frontend restart loop (nginx upstream edge-api)
 
 - Log: `host not found in upstream "edge-api"` → nginx exit 1 → Restarting.

@@ -10,10 +10,11 @@
     fetchModels,
     sendOffer,
     stopSession,
+    warmupModels,
     wsUrl,
     type SttModel,
   } from './lib/api'
-  import { Download, Eye, Mic, MicOff, Sparkles } from 'lucide-svelte'
+  import { Download, Eye, Mic, MicOff, Sparkles, Cpu } from 'lucide-svelte'
 
   const PREVIEW_LINES = 3
 
@@ -28,6 +29,7 @@
   let finals = $state<string[]>([])
   let summary = $state('')
   let recording = $state(false)
+  let warming = $state(false)
   let showTranscriptModal = $state(false)
   let showSummaryModal = $state(false)
 
@@ -38,10 +40,16 @@
   let previewFinals = $derived(finals.slice(-PREVIEW_LINES))
   let hasTranscript = $derived(finals.length > 0 || !!partial.trim())
   let hasSummary = $derived(!!summary.trim())
+  let loadedModels = $derived<string[]>(health?.agent?.models_loaded || [])
+  let selectedLoaded = $derived(loadedModels.includes(selectedModel))
+
+  async function refreshHealth() {
+    health = await fetchHealth()
+  }
 
   onMount(async () => {
     try {
-      health = await fetchHealth()
+      await refreshHealth()
       models = await fetchModels()
       if (models.length && !models.find((m) => m.id === selectedModel)) {
         selectedModel = models[0].id
@@ -50,6 +58,22 @@
       error = e?.message || String(e)
     }
   })
+
+  async function loadSelectedModel() {
+    error = ''
+    warming = true
+    status = 'loading-model'
+    try {
+      const result = await warmupModels([selectedModel])
+      await refreshHealth()
+      status = result.all_loaded?.includes(selectedModel) ? 'model-ready' : 'idle'
+    } catch (e: any) {
+      error = e?.message || String(e)
+      status = 'error'
+    } finally {
+      warming = false
+    }
+  }
 
   function pushEvent(event: any) {
     if (event.type === 'transcript.partial') {
@@ -101,11 +125,13 @@
     partial = ''
     showTranscriptModal = false
     showSummaryModal = false
-    status = 'starting'
+    // Nếu model chưa trên GPU → session.open sẽ load (có thể mất vài chục giây)
+    status = selectedLoaded ? 'starting' : 'loading-model'
     try {
       const session = await createSession(selectedModel, language || undefined)
       sessionId = session.session_id
       status = session.state
+      await refreshHealth()
 
       eventsWs = new WebSocket(wsUrl(`/api/sessions/${sessionId}/events`))
       eventsWs.onmessage = (msg) => {
@@ -261,8 +287,19 @@
 
         <div class="flex flex-wrap gap-2">
           {#if !recording}
-            <Button onclick={startRecording} disabled={status === 'starting' || status === 'summarizing'}>
+            <Button
+              onclick={startRecording}
+              disabled={warming || status === 'starting' || status === 'loading-model' || status === 'summarizing'}
+            >
               <Mic size={16} /> Start
+            </Button>
+            <Button
+              variant="secondary"
+              onclick={loadSelectedModel}
+              disabled={recording || warming || selectedLoaded || status === 'starting' || status === 'loading-model'}
+            >
+              <Cpu size={16} />
+              {warming ? 'Đang load…' : selectedLoaded ? 'Đã load' : 'Load model'}
             </Button>
           {:else}
             <Button variant="danger" onclick={stopRecording}>
@@ -283,6 +320,10 @@
             {:else}
               …
             {/if}
+          </div>
+          <div>
+            GPU loaded:
+            <span class="text-[var(--text)]">{loadedModels.length ? loadedModels.join(', ') : '—'}</span>
           </div>
         </div>
 

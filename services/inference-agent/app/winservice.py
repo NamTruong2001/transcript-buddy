@@ -50,7 +50,7 @@ def _env_for_child() -> dict[str, str]:
     env.setdefault("AGENT_HOST", "0.0.0.0")
     env.setdefault("AGENT_PORT", "8100")
     env.setdefault("AGENT_TOKEN", "dev-agent-token-change-me")
-    env.setdefault("PRELOAD_MODELS", "tiny,small")
+    env.setdefault("PRELOAD_MODELS", "")
     env.setdefault("MODELS_DIR", str(ROOT / "models" / "faster-whisper"))
     return env
 

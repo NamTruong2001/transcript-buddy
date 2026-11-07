@@ -26,7 +26,7 @@ Mở UI → chọn model → **Start** → nói → **Stop + Summarize**.
 ```powershell
 cd services\inference-agent
 $env:AGENT_PORT = "8100"
-$env:PRELOAD_MODELS = "tiny,small"
+$env:PRELOAD_MODELS = ""   # không preload GPU lúc boot; Start / nút Load model mới nạp
 .\run.ps1
 # terminal khác: .\wait_ready.ps1
 ```

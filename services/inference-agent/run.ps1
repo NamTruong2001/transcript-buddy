@@ -12,7 +12,8 @@ if (-not $env:AGENT_TOKEN) { $env:AGENT_TOKEN = "dev-agent-token-change-me" }
 if (-not $env:AGENT_HOST) { $env:AGENT_HOST = "0.0.0.0" }
 if (-not $env:AGENT_PORT) { $env:AGENT_PORT = "8100" }
 # Preload common models into GPU at startup (empty string = lazy load)
-if (-not $env:PRELOAD_MODELS) { $env:PRELOAD_MODELS = "tiny,small" }
+# Default: không preload GPU lúc start (lazy khi Start /warmup)
+if (-not $env:PRELOAD_MODELS) { $env:PRELOAD_MODELS = "" }
 
 $python = Join-Path $root ".venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {

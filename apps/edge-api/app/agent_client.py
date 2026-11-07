@@ -59,6 +59,20 @@ async def agent_summarize(transcript: str) -> dict[str, Any]:
         return resp.json()
 
 
+async def agent_warmup(models: list[str]) -> dict[str, Any]:
+    """Load Whisper model(s) into GPU without opening a session."""
+    base = http_base_from_ws(AGENT_URL)
+    headers = {"Authorization": f"Bearer {AGENT_TOKEN}"}
+    async with httpx.AsyncClient(timeout=600.0) as client:
+        resp = await client.post(
+            f"{base}/warmup",
+            headers=headers,
+            json={"models": models},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 class SessionAgentLink:
     """One WebSocket to the Windows inference agent per browser session."""
 

@@ -53,7 +53,8 @@ sc.exe stop TranscriptWhisper
 cd D:\code\transcript-buddy\services\inference-agent
 $env:AGENT_TOKEN = "dev-agent-token-change-me"
 $env:AGENT_PORT = "8100"
-$env:PRELOAD_MODELS = "tiny,small"   # hoặc "" để lazy
+$env:PRELOAD_MODELS = ""            # mặc định: không preload lúc boot
+# $env:PRELOAD_MODELS = "tiny,small"  # chỉ khi muốn warm GPU ngay khi start service
 .\run.ps1
 ```
 
