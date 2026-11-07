@@ -1,5 +1,10 @@
 # Edit tracker
 
+## 2026-11-07 — Dropdown ngôn ngữ Whisper
+
+- Thay ô nhập language bằng select (~100 code faster-whisper + `auto`).
+- File `apps/frontend/src/lib/languages.ts`; `auto` → không gửi language (detect).
+
 ## 2026-11-07 — Chọn model Ollama khi tóm tắt
 
 - Agent: `GET /ollama/models` (proxy tags Ollama).

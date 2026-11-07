@@ -17,6 +17,7 @@
     type OllamaModel,
     type SttModel,
   } from './lib/api'
+  import { LANGUAGE_OPTIONS, languageForApi } from './lib/languages'
   import { Download, Eye, Mic, MicOff, Sparkles, Cpu, RotateCcw } from 'lucide-svelte'
 
   const PREVIEW_LINES = 3
@@ -142,7 +143,7 @@
     // Nếu model chưa trên GPU → session.open sẽ load (có thể mất vài chục giây)
     status = selectedLoaded ? 'starting' : 'loading-model'
     try {
-      const session = await createSession(selectedModel, language || undefined)
+      const session = await createSession(selectedModel, languageForApi(language))
       sessionId = session.session_id
       status = session.state
       await refreshHealth()
@@ -321,14 +322,17 @@
           </select>
         </label>
 
-        <label class="block space-y-1 text-sm">
+        <label class="block min-w-0 space-y-1 text-sm">
           <span class="text-[var(--muted)]">Language</span>
-          <input
-            class="w-full rounded-md border border-[var(--border)] bg-[#121820] px-3 py-2"
+          <select
+            class="w-full max-w-full rounded-md border border-[var(--border)] bg-[#121820] px-3 py-2"
             bind:value={language}
-            placeholder="vi / en / auto"
             disabled={recording}
-          />
+          >
+            {#each LANGUAGE_OPTIONS as lang}
+              <option value={lang.id}>{lang.label}</option>
+            {/each}
+          </select>
         </label>
 
         <label class="block min-w-0 space-y-1 text-sm">
