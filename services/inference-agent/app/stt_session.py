@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -16,6 +17,8 @@ from .config import (
 )
 from .models_catalog import list_local_models, resolve_realtime_model
 from .stt_engine import POOL
+
+log = logging.getLogger("inference-agent.stt")
 
 EmitFn = Callable[[dict], Awaitable[None]]
 
@@ -35,6 +38,9 @@ class SttSession:
     _last_partial_ts: float = 0.0
     _closed: bool = False
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Hàng đợi PCM: nhận WS không chờ GPU → tránh keepalive ping timeout
+    _pcm_q: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(maxsize=400))
+    _worker: asyncio.Task | None = None
 
     @classmethod
     def create(
@@ -52,13 +58,57 @@ class SttSession:
         POOL.get(model)
         if realtime != model:
             POOL.get(realtime)
-        return cls(
+        session = cls(
             session_id=session_id,
             model=model,
             language=language,
             emit=emit,
             realtime_model=realtime,
         )
+        session.start_worker()
+        return session
+
+    def start_worker(self) -> None:
+        if self._worker is None or self._worker.done():
+            self._worker = asyncio.create_task(self._run_worker(), name=f"stt-{self.session_id}")
+
+    async def enqueue_pcm(self, pcm: bytes) -> None:
+        """Non-blocking from WS receive loop — chỉ đẩy vào queue."""
+        if self._closed or not pcm:
+            return
+        try:
+            self._pcm_q.put_nowait(pcm)
+        except asyncio.QueueFull:
+            # bỏ chunk cũ nhất để theo kịp realtime
+            try:
+                _ = self._pcm_q.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            try:
+                self._pcm_q.put_nowait(pcm)
+            except asyncio.QueueFull:
+                pass
+
+    async def _run_worker(self) -> None:
+        try:
+            while not self._closed:
+                try:
+                    pcm = await asyncio.wait_for(self._pcm_q.get(), timeout=0.25)
+                    await self._feed_pcm_locked(pcm)
+                except asyncio.TimeoutError:
+                    # hết tiếng dù không còn PCM mới
+                    async with self._lock:
+                        if (
+                            self._speaking
+                            and (time.monotonic() - self._last_voice_ts) >= SILENCE_END_S
+                        ):
+                            await self._finalize_utterance()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    log.exception("stt worker error")
+        except asyncio.CancelledError:
+            pass
 
     def _rms(self, pcm: bytes) -> float:
         if not pcm:
@@ -73,6 +123,10 @@ class SttSession:
         return audio
 
     async def feed_pcm(self, pcm: bytes) -> None:
+        """Tương thích cũ — ưu tiên enqueue_pcm từ WS."""
+        await self.enqueue_pcm(pcm)
+
+    async def _feed_pcm_locked(self, pcm: bytes) -> None:
         if self._closed or not pcm:
             return
         async with self._lock:
@@ -84,7 +138,6 @@ class SttSession:
             if voiced:
                 if not self._speaking:
                     self._speaking = True
-                    # keep a little pre-roll from recent buffer (~0.3s)
                     preroll = int(SAMPLE_RATE * 0.3) * 2
                     self._utt = bytearray(self._pcm[-preroll:])
                 self._utt.extend(pcm)
@@ -145,8 +198,25 @@ class SttSession:
             )
 
     async def stop_and_flush(self) -> str:
+        # rút hết queue rồi finalize
+        while True:
+            try:
+                pcm = self._pcm_q.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            await self._feed_pcm_locked(pcm)
+
         async with self._lock:
             if self._speaking and self._utt:
                 await self._finalize_utterance()
             self._closed = True
+
+        worker = self._worker
+        self._worker = None
+        if worker and not worker.done():
+            worker.cancel()
+            try:
+                await worker
+            except asyncio.CancelledError:
+                pass
         return "\n".join(self.finals).strip()

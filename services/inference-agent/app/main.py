@@ -185,7 +185,8 @@ async def agent_ws(websocket: WebSocket):
             if "bytes" in message and message["bytes"] is not None:
                 if session is None:
                     continue
-                await session.feed_pcm(message["bytes"])
+                # Không await GPU ở đây — chỉ enqueue để WS còn xử lý ping/pong
+                await session.enqueue_pcm(message["bytes"])
                 continue
 
             text = message.get("text")

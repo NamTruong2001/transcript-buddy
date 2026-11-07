@@ -103,12 +103,12 @@ class SessionAgentLink:
     ) -> dict[str, Any]:
         url = f"{AGENT_URL}?token={AGENT_TOKEN}"
         log.info("agent connect session=%s", session_id)
-        # GPU STT có thể làm pong chậm → tăng ping_timeout, tránh đứt WS trước Stop
+        # Tắt client ping: GPU/large-v3 có thể làm agent pong chậm → false "connection lost"
+        # TCP/Tailscale vẫn giữ kết nối; agent WS receive loop phải luôn free (PCM queue).
         self._ws = await ws_connect(
             url,
             max_size=8 * 1024 * 1024,
-            ping_interval=30,
-            ping_timeout=120,
+            ping_interval=None,
             close_timeout=5,
         )
         loop = asyncio.get_running_loop()

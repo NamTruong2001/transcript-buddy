@@ -1,5 +1,11 @@
 # Edit tracker
 
+## 2026-11-07 — Fix agent connection lost (WS keepalive / large-v3)
+
+- Log edge: `keepalive ping timeout` → UI `agent connection lost` khi chạy `large-v3`.
+- Nguyên nhân: vòng `websocket.receive` await GPU transcribe → không pong kịp.
+- Fix: PCM queue + worker trong `SttSession`; edge `ping_interval=None`.
+
 ## 2026-11-07 — Lazy ASR load (không preload lúc boot)
 
 - Default `PRELOAD_MODELS=""`: service Windows chạy nhưng không nạp Whisper lên GPU khi boot.
