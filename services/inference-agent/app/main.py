@@ -242,7 +242,45 @@ async def agent_ws(websocket: WebSocket):
                 if session is None:
                     await emit({"type": "error", "message": "no active session"})
                     continue
+                do_summary = bool(data.get("summarize", False))
                 transcript = await session.stop_and_flush()
+                if not do_summary:
+                    await emit(
+                        {
+                            "type": "session.stopped",
+                            "session_id": session.session_id,
+                            "transcript": transcript,
+                        }
+                    )
+                    continue
+                try:
+                    summary = await summarize_transcript(transcript)
+                    await emit(
+                        {
+                            "type": "summary.done",
+                            "session_id": session.session_id,
+                            "transcript": transcript,
+                            "summary": summary,
+                        }
+                    )
+                except Exception as exc:
+                    log.exception("summarize failed")
+                    await emit(
+                        {
+                            "type": "error",
+                            "message": f"summarize failed: {exc}",
+                            "transcript": transcript,
+                        }
+                    )
+                continue
+
+            if msg_type == "session.summarize":
+                if session is None:
+                    await emit({"type": "error", "message": "no active session"})
+                    continue
+                transcript = "\n".join(session.finals).strip()
+                if not transcript:
+                    transcript = await session.stop_and_flush()
                 try:
                     summary = await summarize_transcript(transcript)
                     await emit(

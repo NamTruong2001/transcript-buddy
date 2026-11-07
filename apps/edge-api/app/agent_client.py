@@ -84,16 +84,7 @@ class SessionAgentLink:
 
     @property
     def connected(self) -> bool:
-        ws = self._ws
-        if ws is None:
-            return False
-        # websockets asyncio client: .state / .protocol vary by version
-        try:
-            return bool(getattr(ws, "state", None) and ws.state.name == "OPEN") or (
-                not getattr(ws, "close_code", None) and ws is not None
-            )
-        except Exception:
-            return self._ws is not None
+        return self._ws is not None
 
     async def connect_and_open(
         self,
@@ -160,8 +151,11 @@ class SessionAgentLink:
             return
         await self._ws.send(pcm)
 
-    async def stop(self) -> None:
-        await self.send_json({"type": "session.stop"})
+    async def stop(self, *, summarize: bool = False) -> None:
+        await self.send_json({"type": "session.stop", "summarize": summarize})
+
+    async def request_summarize(self) -> None:
+        await self.send_json({"type": "session.summarize"})
 
     async def close(self) -> None:
         try:

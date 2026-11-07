@@ -10,11 +10,12 @@
     fetchModels,
     sendOffer,
     stopSession,
+    summarizeSession,
     warmupModels,
     wsUrl,
     type SttModel,
   } from './lib/api'
-  import { Download, Eye, Mic, MicOff, Sparkles, Cpu } from 'lucide-svelte'
+  import { Download, Eye, Mic, MicOff, Sparkles, Cpu, RotateCcw } from 'lucide-svelte'
 
   const PREVIEW_LINES = 3
 
@@ -191,50 +192,80 @@
     })
   }
 
-  async function stopRecording() {
-    if (!sessionId) return
-    status = 'summarizing'
-    recording = false
-    try {
-      // Dừng mic/WebRTC trước, nhưng giữ eventsWs tới khi có summary
-      if (localStream) {
-        localStream.getTracks().forEach((t) => t.stop())
-        localStream = null
-      }
-      if (pc) {
-        pc.close()
-        pc = null
-      }
-      const result = await stopSession(sessionId)
-      summary = result.summary || ''
-      if (result.finals?.length) finals = result.finals
-      else if (result.transcript) {
-        finals = String(result.transcript)
-          .split('\n')
-          .map((s) => s.trim())
-          .filter(Boolean)
-      }
-      status = 'summarized'
-    } catch (e: any) {
-      error = e?.message || String(e)
-      status = 'error'
-    } finally {
-      if (eventsWs) {
-        eventsWs.close()
-        eventsWs = null
-      }
+  function applyTranscriptResult(result: { finals?: string[]; transcript?: string }) {
+    if (result.finals?.length) finals = result.finals
+    else if (result.transcript) {
+      finals = String(result.transcript)
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean)
     }
   }
 
-  async function cleanupMedia(closeSession = true) {
-    if (pc) {
-      pc.close()
-      pc = null
-    }
+  async function haltLocalMedia() {
     if (localStream) {
       localStream.getTracks().forEach((t) => t.stop())
       localStream = null
     }
+    if (pc) {
+      pc.close()
+      pc = null
+    }
+  }
+
+  async function stopRecording() {
+    if (!sessionId) return
+    status = 'stopping'
+    recording = false
+    try {
+      await haltLocalMedia()
+      const result = await stopSession(sessionId, false)
+      applyTranscriptResult(result)
+      if (partial.trim() && !finals.includes(partial.trim())) {
+        finals = [...finals, partial.trim()]
+      }
+      partial = ''
+      status = 'stopped'
+    } catch (e: any) {
+      error = e?.message || String(e)
+      status = 'error'
+    }
+  }
+
+  async function runSummarize() {
+    if (!sessionId) return
+    error = ''
+    status = 'summarizing'
+    try {
+      if (recording) {
+        recording = false
+        await haltLocalMedia()
+        await stopSession(sessionId, false)
+      }
+      const result = await summarizeSession(sessionId)
+      summary = result.summary || ''
+      applyTranscriptResult(result)
+      status = 'summarized'
+    } catch (e: any) {
+      error = e?.message || String(e)
+      status = 'error'
+    }
+  }
+
+  async function resetAll() {
+    error = ''
+    recording = false
+    await cleanupMedia(true)
+    finals = []
+    partial = ''
+    summary = ''
+    showTranscriptModal = false
+    showSummaryModal = false
+    status = 'idle'
+  }
+
+  async function cleanupMedia(closeSession = true) {
+    await haltLocalMedia()
     if (eventsWs) {
       eventsWs.close()
       eventsWs = null
@@ -289,7 +320,13 @@
           {#if !recording}
             <Button
               onclick={startRecording}
-              disabled={warming || status === 'starting' || status === 'loading-model' || status === 'summarizing'}
+              disabled={
+                warming ||
+                status === 'starting' ||
+                status === 'loading-model' ||
+                status === 'summarizing' ||
+                status === 'stopping'
+              }
             >
               <Mic size={16} /> Start
             </Button>
@@ -301,9 +338,29 @@
               <Cpu size={16} />
               {warming ? 'Đang load…' : selectedLoaded ? 'Đã load' : 'Load model'}
             </Button>
+            <Button
+              variant="secondary"
+              onclick={runSummarize}
+              disabled={!sessionId || !hasTranscript || status === 'summarizing' || status === 'stopping'}
+            >
+              <Sparkles size={16} /> Tóm tắt
+            </Button>
+            <Button
+              variant="ghost"
+              onclick={resetAll}
+              disabled={status === 'summarizing' || status === 'stopping' || (!sessionId && !hasTranscript && !hasSummary)}
+            >
+              <RotateCcw size={16} /> Reset
+            </Button>
           {:else}
-            <Button variant="danger" onclick={stopRecording}>
-              <MicOff size={16} /> Stop + Summarize
+            <Button variant="danger" onclick={stopRecording} disabled={status === 'stopping'}>
+              <MicOff size={16} /> Dừng
+            </Button>
+            <Button variant="secondary" onclick={runSummarize} disabled={status === 'stopping'}>
+              <Sparkles size={16} /> Tóm tắt
+            </Button>
+            <Button variant="ghost" onclick={resetAll} disabled={status === 'stopping'}>
+              <RotateCcw size={16} /> Reset
             </Button>
           {/if}
         </div>
@@ -382,7 +439,9 @@
             </div>
           </div>
         {:else}
-          <p class="text-sm text-[var(--muted)]">Bấm Stop để tạo tóm tắt. Nội dung đầy đủ chỉ hiện trong modal.</p>
+          <p class="text-sm text-[var(--muted)]">
+            Bấm <strong>Dừng</strong> để kết thúc ghi, rồi <strong>Tóm tắt</strong> khi cần. Reset để xóa hết.
+          </p>
         {/if}
       </Card>
     </div>

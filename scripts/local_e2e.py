@@ -99,10 +99,12 @@ async def check_edge(edge: str) -> None:
         created = (await client.post(f"{edge}/api/sessions", json=body)).json()
         assert "session_id" in created, created
         sid = created["session_id"]
-        # stop immediately (empty transcript summarize path)
-        stopped = await client.post(f"{edge}/api/sessions/{sid}/stop")
+        # stop without summary, then summarize separately
+        stopped = await client.post(f"{edge}/api/sessions/{sid}/stop", json={"summarize": False})
         assert stopped.status_code == 200, await stopped.aread()
-        data = stopped.json()
+        summarized = await client.post(f"{edge}/api/sessions/{sid}/summarize")
+        assert summarized.status_code == 200, await summarized.aread()
+        data = summarized.json()
         assert "summary" in data, data
         await client.delete(f"{edge}/api/sessions/{sid}")
         print("[ok] edge health/models/session/stop/summarize")

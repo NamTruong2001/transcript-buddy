@@ -1,5 +1,12 @@
 # Edit tracker
 
+## 2026-11-07 — UI: Dừng / Tóm tắt / Reset tách riêng
+
+- Bỏ nút gộp “Stop + Summarize”.
+- **Dừng**: flush transcript, không Ollama (`session.stop` + `summarize:false`).
+- **Tóm tắt**: `POST /api/sessions/{id}/summarize`.
+- **Reset**: xóa session + clear UI.
+
 ## 2026-11-07 — Fix agent connection lost (WS keepalive / large-v3)
 
 - Log edge: `keepalive ping timeout` → UI `agent connection lost` khi chạy `large-v3`.

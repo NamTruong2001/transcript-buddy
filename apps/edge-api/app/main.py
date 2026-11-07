@@ -39,6 +39,10 @@ class WarmupBody(BaseModel):
     models: list[str] = Field(default_factory=list)
 
 
+class StopBody(BaseModel):
+    summarize: bool = False
+
+
 @app.get("/api/health")
 async def health():
     try:
@@ -97,44 +101,93 @@ async def webrtc_offer(session_id: str, body: OfferBody):
 
 
 @app.post("/api/sessions/{session_id}/stop")
-async def stop_session(session_id: str):
+async def stop_session(session_id: str, body: StopBody = StopBody()):
+    session = MANAGER.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+    want_summary = bool(body.summarize)
+    try:
+        fallback = await MANAGER.stop(session, summarize=want_summary)
+    except Exception as exc:
+        log.exception("stop failed")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    event = fallback
+    if event is None:
+        expect = "summary.done" if want_summary else "session.stopped"
+        try:
+            while True:
+                evt = await asyncio_wait_event(session, timeout=180.0)
+                if evt.get("type") == expect:
+                    event = evt
+                    break
+                if evt.get("type") == "error" and want_summary and "summarize" in (
+                    evt.get("message") or ""
+                ):
+                    raise HTTPException(status_code=502, detail=evt.get("message"))
+                # ignore other transcript events while waiting
+                if evt.get("type") in {"transcript.partial", "transcript.final"}:
+                    continue
+                if evt.get("type") == "summary.done" and want_summary:
+                    event = evt
+                    break
+                if evt.get("type") == "session.stopped" and not want_summary:
+                    event = evt
+                    break
+        except TimeoutError as exc:
+            if want_summary:
+                log.warning("summary.done timeout; HTTP fallback")
+                try:
+                    from .agent_client import agent_summarize
+
+                    result = await agent_summarize("\n".join(session.finals).strip())
+                    event = {
+                        "transcript": result.get("transcript") or "\n".join(session.finals),
+                        "summary": result.get("summary") or "",
+                    }
+                except Exception as fallback_exc:
+                    raise HTTPException(status_code=504, detail="summarize timeout") from fallback_exc
+            else:
+                event = {
+                    "transcript": "\n".join(session.finals),
+                    "summary": "",
+                }
+    return {
+        "session_id": session_id,
+        "transcript": (event or {}).get("transcript") or "\n".join(session.finals),
+        "summary": (event or {}).get("summary") or session.summary,
+        "finals": session.finals,
+        "summarized": want_summary,
+    }
+
+
+@app.post("/api/sessions/{session_id}/summarize")
+async def summarize_session(session_id: str):
     session = MANAGER.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
     try:
-        fallback = await MANAGER.stop(session)
+        fallback = await MANAGER.summarize(session)
     except Exception as exc:
-        log.exception("stop/summarize failed")
+        log.exception("summarize failed")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    summary = fallback
-    if summary is None:
-        # wait for summary.done via agent WS queue
+    event = fallback
+    if event is None:
         try:
             while True:
-                event = await asyncio_wait_event(session, timeout=180.0)
-                if event.get("type") == "summary.done":
-                    summary = event
+                evt = await asyncio_wait_event(session, timeout=180.0)
+                if evt.get("type") == "summary.done":
+                    event = evt
                     break
-                if event.get("type") == "error" and "summarize" in (event.get("message") or ""):
-                    raise HTTPException(status_code=502, detail=event.get("message"))
+                if evt.get("type") == "error" and "summarize" in (evt.get("message") or ""):
+                    raise HTTPException(status_code=502, detail=evt.get("message"))
         except TimeoutError as exc:
-            # last resort: HTTP summarize with whatever finals we have
-            log.warning("summary.done timeout; trying HTTP fallback")
-            try:
-                from .agent_client import agent_summarize
-
-                result = await agent_summarize("\n".join(session.finals).strip())
-                summary = {
-                    "transcript": result.get("transcript") or "\n".join(session.finals),
-                    "summary": result.get("summary") or "",
-                }
-            except Exception as fallback_exc:
-                raise HTTPException(status_code=504, detail="summarize timeout") from fallback_exc
+            raise HTTPException(status_code=504, detail="summarize timeout") from exc
     return {
         "session_id": session_id,
-        "transcript": summary.get("transcript") if summary else "\n".join(session.finals),
-        "summary": summary.get("summary") if summary else session.summary,
+        "transcript": (event or {}).get("transcript") or "\n".join(session.finals),
+        "summary": (event or {}).get("summary") or session.summary,
         "finals": session.finals,
     }
 

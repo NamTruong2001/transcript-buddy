@@ -51,6 +51,11 @@ class SessionManager:
                 if text:
                     session.finals.append(text)
                 session.partial = ""
+            elif et == "session.stopped":
+                transcript = event.get("transcript") or ""
+                if transcript and not session.finals:
+                    session.finals = [ln for ln in transcript.split("\n") if ln.strip()]
+                session.state = "stopped"
             elif et == "summary.done":
                 session.summary = event.get("summary") or ""
                 session.state = "summarized"
@@ -96,7 +101,6 @@ class SessionManager:
         await pc.setRemoteDescription(RTCSessionDescription(sdp=offer_sdp, type=offer_type))
         answer = await pc.createAnswer()
         await pc.setLocalDescription(answer)
-        # wait briefly for ICE gathering
         for _ in range(50):
             if pc.iceGatheringState == "complete":
                 break
@@ -104,13 +108,7 @@ class SessionManager:
         assert pc.localDescription is not None
         return {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}
 
-    async def stop(self, session: Session) -> dict[str, Any] | None:
-        """Stop recording and request summary.
-
-        Returns a summary.done-like dict when HTTP fallback was used; otherwise None
-        and the caller should wait for the agent WebSocket summary.done event.
-        """
-        session.state = "summarizing"
+    async def _halt_media(self, session: Session) -> None:
         if session.audio_task:
             session.audio_task.cancel()
             session.audio_task = None
@@ -121,15 +119,33 @@ class SessionManager:
                 pass
             session.pc = None
 
+    async def stop(self, session: Session, *, summarize: bool = False) -> dict[str, Any] | None:
+        """Stop recording. If summarize=False, only flush transcript (session.stopped).
+
+        Returns an event dict when handled locally (HTTP fallback); otherwise None and
+        the caller should wait on the agent WebSocket queue.
+        """
+        session.state = "summarizing" if summarize else "stopping"
+        await self._halt_media(session)
+
         transcript = "\n".join(session.finals).strip()
         if session.agent:
             try:
-                await session.agent.stop()
+                await session.agent.stop(summarize=summarize)
                 return None
             except Exception as exc:
-                log.warning("agent WS stop failed (%s); HTTP summarize fallback", exc)
+                log.warning("agent WS stop failed (%s); local fallback", exc)
 
-        # Fallback: WS đã chết (keepalive timeout) → tóm tắt qua HTTP với finals đã có
+        if not summarize:
+            session.state = "stopped"
+            event = {
+                "type": "session.stopped",
+                "session_id": session.id,
+                "transcript": transcript,
+            }
+            await session.queue.put(event)
+            return event
+
         try:
             result = await agent_summarize(transcript)
         except Exception as exc:
@@ -147,9 +163,43 @@ class SessionManager:
         await session.queue.put(event)
         return event
 
+    async def summarize(self, session: Session) -> dict[str, Any] | None:
+        """Summarize current finals (after stop, or mid-session flush via agent)."""
+        session.state = "summarizing"
+        transcript = "\n".join(session.finals).strip()
+
+        if session.agent and session.agent.connected:
+            try:
+                await session.agent.request_summarize()
+                return None
+            except Exception as exc:
+                log.warning("agent WS summarize failed (%s); HTTP fallback", exc)
+
+        try:
+            result = await agent_summarize(transcript)
+        except Exception as exc:
+            log.exception("HTTP summarize failed")
+            raise RuntimeError(f"summarize failed: {exc}") from exc
+        summary = result.get("summary") or ""
+        session.summary = summary
+        session.state = "summarized"
+        event = {
+            "type": "summary.done",
+            "session_id": session.id,
+            "transcript": result.get("transcript") or transcript,
+            "summary": summary,
+        }
+        await session.queue.put(event)
+        return event
+
     async def close(self, session: Session) -> None:
         try:
-            await self.stop(session)
+            await self._halt_media(session)
+            if session.agent:
+                try:
+                    await session.agent.stop(summarize=False)
+                except Exception:
+                    pass
         except Exception:
             pass
         if session.agent:

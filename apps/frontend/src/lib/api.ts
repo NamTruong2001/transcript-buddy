@@ -64,8 +64,23 @@ export async function sendOffer(sessionId: string, offer: RTCSessionDescriptionI
   return res.json() as Promise<RTCSessionDescriptionInit>
 }
 
-export async function stopSession(sessionId: string) {
-  const res = await fetch(apiUrl(`/api/sessions/${sessionId}/stop`), { method: 'POST' })
+export async function stopSession(sessionId: string, summarize = false) {
+  const res = await fetch(apiUrl(`/api/sessions/${sessionId}/stop`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ summarize }),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json() as Promise<{
+    transcript: string
+    summary: string
+    finals: string[]
+    summarized?: boolean
+  }>
+}
+
+export async function summarizeSession(sessionId: string) {
+  const res = await fetch(apiUrl(`/api/sessions/${sessionId}/summarize`), { method: 'POST' })
   if (!res.ok) throw new Error(await res.text())
   return res.json() as Promise<{ transcript: string; summary: string; finals: string[] }>
 }
