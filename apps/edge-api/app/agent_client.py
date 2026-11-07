@@ -45,16 +45,28 @@ async def agent_list_models() -> list[dict[str, Any]]:
         return resp.json().get("models") or []
 
 
-async def agent_summarize(transcript: str) -> dict[str, Any]:
+async def agent_summarize(transcript: str, model: str | None = None) -> dict[str, Any]:
     """HTTP fallback when the per-session agent WebSocket is already closed."""
     base = http_base_from_ws(AGENT_URL)
     headers = {"Authorization": f"Bearer {AGENT_TOKEN}"}
+    payload: dict[str, Any] = {"transcript": transcript}
+    if model:
+        payload["model"] = model
     async with httpx.AsyncClient(timeout=180.0) as client:
         resp = await client.post(
             f"{base}/summarize",
             headers=headers,
-            json={"transcript": transcript},
+            json=payload,
         )
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def agent_list_ollama_models() -> dict[str, Any]:
+    base = http_base_from_ws(AGENT_URL)
+    headers = {"Authorization": f"Bearer {AGENT_TOKEN}"}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(f"{base}/ollama/models", headers=headers)
         resp.raise_for_status()
         return resp.json()
 
@@ -151,11 +163,17 @@ class SessionAgentLink:
             return
         await self._ws.send(pcm)
 
-    async def stop(self, *, summarize: bool = False) -> None:
-        await self.send_json({"type": "session.stop", "summarize": summarize})
+    async def stop(self, *, summarize: bool = False, model: str | None = None) -> None:
+        payload: dict[str, Any] = {"type": "session.stop", "summarize": summarize}
+        if model:
+            payload["model"] = model
+        await self.send_json(payload)
 
-    async def request_summarize(self) -> None:
-        await self.send_json({"type": "session.summarize"})
+    async def request_summarize(self, model: str | None = None) -> None:
+        payload: dict[str, Any] = {"type": "session.summarize"}
+        if model:
+            payload["model"] = model
+        await self.send_json(payload)
 
     async def close(self) -> None:
         try:

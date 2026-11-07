@@ -8,11 +8,13 @@
     deleteSession,
     fetchHealth,
     fetchModels,
+    fetchOllamaModels,
     sendOffer,
     stopSession,
     summarizeSession,
     warmupModels,
     wsUrl,
+    type OllamaModel,
     type SttModel,
   } from './lib/api'
   import { Download, Eye, Mic, MicOff, Sparkles, Cpu, RotateCcw } from 'lucide-svelte'
@@ -21,6 +23,8 @@
 
   let models = $state<SttModel[]>([])
   let selectedModel = $state('small')
+  let ollamaModels = $state<OllamaModel[]>([])
+  let selectedLlm = $state('qwen3.5:4b')
   let language = $state('vi')
   let health = $state<any>(null)
   let status = $state('idle')
@@ -29,6 +33,7 @@
   let partial = $state('')
   let finals = $state<string[]>([])
   let summary = $state('')
+  let summaryModel = $state('')
   let recording = $state(false)
   let warming = $state(false)
   let showTranscriptModal = $state(false)
@@ -54,6 +59,14 @@
       models = await fetchModels()
       if (models.length && !models.find((m) => m.id === selectedModel)) {
         selectedModel = models[0].id
+      }
+      const ollama = await fetchOllamaModels()
+      ollamaModels = ollama.models || []
+      const preferred = ollama.default || health?.agent?.ollama_default_model || 'qwen3.5:4b'
+      if (ollamaModels.find((m) => m.id === preferred)) {
+        selectedLlm = preferred
+      } else if (ollamaModels.length) {
+        selectedLlm = ollamaModels[0].id
       }
     } catch (e: any) {
       error = e?.message || String(e)
@@ -242,8 +255,9 @@
         await haltLocalMedia()
         await stopSession(sessionId, false)
       }
-      const result = await summarizeSession(sessionId)
+      const result = await summarizeSession(sessionId, selectedLlm)
       summary = result.summary || ''
+      summaryModel = result.model || selectedLlm
       applyTranscriptResult(result)
       status = 'summarized'
     } catch (e: any) {
@@ -259,6 +273,7 @@
     finals = []
     partial = ''
     summary = ''
+    summaryModel = ''
     showTranscriptModal = false
     showSummaryModal = false
     status = 'idle'
@@ -314,6 +329,23 @@
             placeholder="vi / en / auto"
             disabled={recording}
           />
+        </label>
+
+        <label class="block min-w-0 space-y-1 text-sm">
+          <span class="text-[var(--muted)]">LLM tóm tắt (Ollama)</span>
+          <select
+            class="w-full max-w-full rounded-md border border-[var(--border)] bg-[#121820] px-3 py-2"
+            bind:value={selectedLlm}
+            disabled={status === 'summarizing'}
+          >
+            {#if ollamaModels.length === 0}
+              <option value={selectedLlm}>{selectedLlm} (đang tải danh sách…)</option>
+            {:else}
+              {#each ollamaModels as m}
+                <option value={m.id}>{m.id} ({m.size_gb} GB)</option>
+              {/each}
+            {/if}
+          </select>
         </label>
 
         <div class="flex flex-wrap gap-2">
@@ -428,12 +460,14 @@
 
       <Card title="Summary" class="min-w-0">
         {#if status === 'summarizing'}
-          <p class="text-sm text-[var(--muted)]">Đang tóm tắt bằng qwen3.5:4b…</p>
+          <p class="break-words text-sm text-[var(--muted)]">Đang tóm tắt bằng {selectedLlm}…</p>
         {:else if hasSummary}
           <div class="flex min-w-0 flex-col gap-3">
             <div class="flex min-w-0 flex-wrap items-center gap-2">
               <Sparkles size={16} class="shrink-0 text-[var(--accent-2)]" />
-              <span class="text-sm text-[var(--text)]">Đã có bản tóm tắt</span>
+              <span class="break-words text-sm text-[var(--text)]">
+                Đã có bản tóm tắt{summaryModel ? ` (${summaryModel})` : ''}
+              </span>
               <div class="flex flex-wrap gap-2">
                 <Button variant="secondary" onclick={() => (showSummaryModal = true)}>
                   <Eye size={16} /> Xem tóm tắt
@@ -476,7 +510,7 @@
   {/if}
 </Modal>
 
-<Modal bind:open={showSummaryModal} title="Tóm tắt (qwen3.5:4b)">
+<Modal bind:open={showSummaryModal} title={`Tóm tắt (${summaryModel || selectedLlm})`}>
   <div class="mb-4 flex justify-end">
     <Button variant="secondary" onclick={downloadSummary}>
       <Download size={16} /> Tải về

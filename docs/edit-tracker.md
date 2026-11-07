@@ -1,5 +1,11 @@
 # Edit tracker
 
+## 2026-11-07 — Chọn model Ollama khi tóm tắt
+
+- Agent: `GET /ollama/models` (proxy tags Ollama).
+- Edge: `GET /api/ollama/models`; `POST .../summarize` nhận `model`.
+- UI dropdown LLM đã tải; mặc định `OLLAMA_MODEL` / `qwen3.5:4b`.
+
 ## 2026-11-07 — Live preview / summary responsive (không vỡ UI)
 
 - Bỏ `truncate` cắt ngang câu; dùng `break-words` + scroll trong khung cố định.

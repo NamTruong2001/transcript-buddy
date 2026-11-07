@@ -8,7 +8,12 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .agent_client import agent_health, agent_list_models, agent_warmup
+from .agent_client import (
+    agent_health,
+    agent_list_models,
+    agent_list_ollama_models,
+    agent_warmup,
+)
 from .config import CORS_ORIGINS, HOST, PORT
 from .sessions import MANAGER
 
@@ -41,6 +46,11 @@ class WarmupBody(BaseModel):
 
 class StopBody(BaseModel):
     summarize: bool = False
+    model: str | None = None
+
+
+class SummarizeSessionBody(BaseModel):
+    model: str | None = None
 
 
 @app.get("/api/health")
@@ -58,6 +68,14 @@ async def models():
         return {"models": await agent_list_models()}
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"agent unreachable: {exc}") from exc
+
+
+@app.get("/api/ollama/models")
+async def ollama_models():
+    try:
+        return await agent_list_ollama_models()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"ollama list failed: {exc}") from exc
 
 
 @app.post("/api/warmup")
@@ -106,8 +124,9 @@ async def stop_session(session_id: str, body: StopBody = StopBody()):
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
     want_summary = bool(body.summarize)
+    llm_model = body.model
     try:
-        fallback = await MANAGER.stop(session, summarize=want_summary)
+        fallback = await MANAGER.stop(session, summarize=want_summary, model=llm_model)
     except Exception as exc:
         log.exception("stop failed")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -140,10 +159,14 @@ async def stop_session(session_id: str, body: StopBody = StopBody()):
                 try:
                     from .agent_client import agent_summarize
 
-                    result = await agent_summarize("\n".join(session.finals).strip())
+                    result = await agent_summarize(
+                        "\n".join(session.finals).strip(),
+                        model=llm_model,
+                    )
                     event = {
                         "transcript": result.get("transcript") or "\n".join(session.finals),
                         "summary": result.get("summary") or "",
+                        "model": llm_model,
                     }
                 except Exception as fallback_exc:
                     raise HTTPException(status_code=504, detail="summarize timeout") from fallback_exc
@@ -158,16 +181,17 @@ async def stop_session(session_id: str, body: StopBody = StopBody()):
         "summary": (event or {}).get("summary") or session.summary,
         "finals": session.finals,
         "summarized": want_summary,
+        "model": (event or {}).get("model") or llm_model,
     }
 
 
 @app.post("/api/sessions/{session_id}/summarize")
-async def summarize_session(session_id: str):
+async def summarize_session(session_id: str, body: SummarizeSessionBody = SummarizeSessionBody()):
     session = MANAGER.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
     try:
-        fallback = await MANAGER.summarize(session)
+        fallback = await MANAGER.summarize(session, model=body.model)
     except Exception as exc:
         log.exception("summarize failed")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -189,6 +213,7 @@ async def summarize_session(session_id: str):
         "transcript": (event or {}).get("transcript") or "\n".join(session.finals),
         "summary": (event or {}).get("summary") or session.summary,
         "finals": session.finals,
+        "model": (event or {}).get("model") or body.model,
     }
 
 

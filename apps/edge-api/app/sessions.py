@@ -119,7 +119,13 @@ class SessionManager:
                 pass
             session.pc = None
 
-    async def stop(self, session: Session, *, summarize: bool = False) -> dict[str, Any] | None:
+    async def stop(
+        self,
+        session: Session,
+        *,
+        summarize: bool = False,
+        model: str | None = None,
+    ) -> dict[str, Any] | None:
         """Stop recording. If summarize=False, only flush transcript (session.stopped).
 
         Returns an event dict when handled locally (HTTP fallback); otherwise None and
@@ -131,7 +137,7 @@ class SessionManager:
         transcript = "\n".join(session.finals).strip()
         if session.agent:
             try:
-                await session.agent.stop(summarize=summarize)
+                await session.agent.stop(summarize=summarize, model=model)
                 return None
             except Exception as exc:
                 log.warning("agent WS stop failed (%s); local fallback", exc)
@@ -147,7 +153,7 @@ class SessionManager:
             return event
 
         try:
-            result = await agent_summarize(transcript)
+            result = await agent_summarize(transcript, model=model)
         except Exception as exc:
             log.exception("HTTP summarize fallback failed")
             raise RuntimeError(f"summarize failed: {exc}") from exc
@@ -159,24 +165,25 @@ class SessionManager:
             "session_id": session.id,
             "transcript": result.get("transcript") or transcript,
             "summary": summary,
+            "model": model,
         }
         await session.queue.put(event)
         return event
 
-    async def summarize(self, session: Session) -> dict[str, Any] | None:
+    async def summarize(self, session: Session, *, model: str | None = None) -> dict[str, Any] | None:
         """Summarize current finals (after stop, or mid-session flush via agent)."""
         session.state = "summarizing"
         transcript = "\n".join(session.finals).strip()
 
         if session.agent and session.agent.connected:
             try:
-                await session.agent.request_summarize()
+                await session.agent.request_summarize(model=model)
                 return None
             except Exception as exc:
                 log.warning("agent WS summarize failed (%s); HTTP fallback", exc)
 
         try:
-            result = await agent_summarize(transcript)
+            result = await agent_summarize(transcript, model=model)
         except Exception as exc:
             log.exception("HTTP summarize failed")
             raise RuntimeError(f"summarize failed: {exc}") from exc
@@ -188,6 +195,7 @@ class SessionManager:
             "session_id": session.id,
             "transcript": result.get("transcript") or transcript,
             "summary": summary,
+            "model": model,
         }
         await session.queue.put(event)
         return event

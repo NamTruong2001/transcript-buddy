@@ -24,13 +24,14 @@ from .config import (  # noqa: E402
     AGENT_TOKEN,
     DEVICE,
     HOST,
+    OLLAMA_MODEL,
     PORT,
     PRELOAD_MODELS,
 )
 from .models_catalog import list_local_models  # noqa: E402
 from .stt_engine import POOL  # noqa: E402
 from .stt_session import SttSession  # noqa: E402
-from .summarize import ollama_alive, summarize_transcript  # noqa: E402
+from .summarize import list_ollama_models, ollama_alive, summarize_transcript  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("inference-agent")
@@ -106,6 +107,7 @@ async def health():
         "models_on_disk": ids,
         "models_loaded": POOL.loaded(),
         "ollama": await ollama_alive(),
+        "ollama_default_model": OLLAMA_MODEL,
         "ws": f"ws://<tailscale-ip>:{PORT}/ws",
     }
 
@@ -130,6 +132,20 @@ async def models(authorization: str | None = Header(default=None)):
     return {
         "models": list_local_models(),
         "loaded": POOL.loaded(),
+    }
+
+
+@app.get("/ollama/models")
+async def ollama_models(authorization: str | None = Header(default=None)):
+    """Danh sách LLM đã tải trong Ollama (để UI chọn khi tóm tắt)."""
+    _check_token(authorization=authorization)
+    try:
+        models = await list_ollama_models()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"ollama unreachable: {exc}") from exc
+    return {
+        "models": models,
+        "default": OLLAMA_MODEL,
     }
 
 
@@ -243,6 +259,7 @@ async def agent_ws(websocket: WebSocket):
                     await emit({"type": "error", "message": "no active session"})
                     continue
                 do_summary = bool(data.get("summarize", False))
+                llm_model = data.get("model")
                 transcript = await session.stop_and_flush()
                 if not do_summary:
                     await emit(
@@ -254,13 +271,14 @@ async def agent_ws(websocket: WebSocket):
                     )
                     continue
                 try:
-                    summary = await summarize_transcript(transcript)
+                    summary = await summarize_transcript(transcript, model=llm_model)
                     await emit(
                         {
                             "type": "summary.done",
                             "session_id": session.session_id,
                             "transcript": transcript,
                             "summary": summary,
+                            "model": llm_model or OLLAMA_MODEL,
                         }
                     )
                 except Exception as exc:
@@ -278,17 +296,19 @@ async def agent_ws(websocket: WebSocket):
                 if session is None:
                     await emit({"type": "error", "message": "no active session"})
                     continue
+                llm_model = data.get("model")
                 transcript = "\n".join(session.finals).strip()
                 if not transcript:
                     transcript = await session.stop_and_flush()
                 try:
-                    summary = await summarize_transcript(transcript)
+                    summary = await summarize_transcript(transcript, model=llm_model)
                     await emit(
                         {
                             "type": "summary.done",
                             "session_id": session.session_id,
                             "transcript": transcript,
                             "summary": summary,
+                            "model": llm_model or OLLAMA_MODEL,
                         }
                     )
                 except Exception as exc:
