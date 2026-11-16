@@ -15,6 +15,9 @@ _KNOWN = {
     "models--Systran--faster-whisper-medium.en": "medium.en",
     "models--Systran--faster-whisper-large-v2": "large-v2",
     "models--Systran--faster-whisper-large-v3": "large-v3",
+    # faster-whisper alias turbo / large-v3-turbo → mobiuslabsgmbh
+    "models--mobiuslabsgmbh--faster-whisper-large-v3-turbo": "large-v3-turbo",
+    "models--dropbox-dash--faster-whisper-large-v3-turbo": "large-v3-turbo",
 }
 
 
@@ -48,7 +51,16 @@ def list_local_models(models_dir: Path | None = None) -> list[dict]:
 
 
 def resolve_realtime_model(final_model: str, available: set[str]) -> str:
-    heavy = {"medium", "medium.en", "large-v1", "large-v2", "large-v3", "large"}
+    heavy = {
+        "medium",
+        "medium.en",
+        "large-v1",
+        "large-v2",
+        "large-v3",
+        "large-v3-turbo",
+        "turbo",
+        "large",
+    }
     if final_model in heavy and "tiny" in available:
         return "tiny"
     if final_model in available:

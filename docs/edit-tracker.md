@@ -1,5 +1,10 @@
 # Edit tracker
 
+## 2026-11-16 — Thêm faster-whisper large-v3-turbo
+
+- Catalog nhận `large-v3-turbo` (HF `mobiuslabsgmbh/faster-whisper-large-v3-turbo`).
+- Tải model vào `models/faster-whisper`; realtime partial vẫn dùng `tiny` khi chọn turbo/large.
+
 ## 2026-11-07 — Dropdown ngôn ngữ Whisper
 
 - Thay ô nhập language bằng select (~100 code faster-whisper + `auto`).
