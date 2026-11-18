@@ -18,9 +18,12 @@
     type SttModel,
   } from './lib/api'
   import { LANGUAGE_OPTIONS, languageForApi } from './lib/languages'
+  import { PcmCapture } from './lib/pcmCapture'
   import { Download, Eye, Mic, MicOff, Sparkles, Cpu, RotateCcw } from 'lucide-svelte'
 
   const PREVIEW_LINES = 3
+  /** Chờ WebRTC có audio thật (edge báo) hoặc ICE fail/timeout → fallback WS. */
+  const WEBRTC_WAIT_MS = 6000
 
   let models = $state<SttModel[]>([])
   let selectedModel = $state('small')
@@ -40,9 +43,11 @@
   let showTranscriptModal = $state(false)
   let showSummaryModal = $state(false)
 
+  let eventsWs: WebSocket | null = null
+  let pcmCapture: PcmCapture | null = null
   let pc: RTCPeerConnection | null = null
   let localStream: MediaStream | null = null
-  let eventsWs: WebSocket | null = null
+  let audioTransport = $state<'none' | 'webrtc' | 'websocket'>('none')
 
   let previewFinals = $derived(finals.slice(-PREVIEW_LINES))
   let hasTranscript = $derived(finals.length > 0 || !!partial.trim())
@@ -104,8 +109,15 @@
       status = 'summarized'
     } else if (event.type === 'error') {
       error = event.message || 'unknown error'
+    } else if (event.type === 'audio_transport') {
+      const t = event.transport
+      if (t === 'webrtc' || t === 'websocket') audioTransport = t
+      if (event.state) status = event.state
     } else if (event.type === 'status') {
       status = event.state || status
+      if (event.audio_transport === 'webrtc' || event.audio_transport === 'websocket') {
+        audioTransport = event.audio_transport
+      }
     }
   }
 
@@ -133,14 +145,90 @@
     downloadText(`transcript-${stamp}.md`, fullTranscriptText())
   }
 
+  function openEventsWs(sid: string): Promise<WebSocket> {
+    const ws = new WebSocket(wsUrl(`/api/sessions/${sid}/events`))
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('events WebSocket timeout')), 10000)
+      ws.onopen = () => {
+        clearTimeout(t)
+        resolve(ws)
+      }
+      ws.onerror = () => {
+        clearTimeout(t)
+        reject(new Error('events WebSocket failed'))
+      }
+    })
+  }
+
+  function waitIceComplete(peer: RTCPeerConnection, timeoutMs = 2000) {
+    if (peer.iceGatheringState === 'complete') return Promise.resolve()
+    return new Promise<void>((resolve) => {
+      const check = () => {
+        if (peer.iceGatheringState === 'complete') {
+          peer.removeEventListener('icegatheringstatechange', check)
+          resolve()
+        }
+      }
+      peer.addEventListener('icegatheringstatechange', check)
+      setTimeout(() => resolve(), timeoutMs)
+    })
+  }
+
+  /** Chờ edge nhận frame WebRTC thật, hoặc ICE fail / hết giờ. */
+  function waitWebRtcAudioOrFail(peer: RTCPeerConnection, timeoutMs: number): Promise<'webrtc' | 'fail'> {
+    return new Promise((resolve) => {
+      let done = false
+      const finish = (result: 'webrtc' | 'fail') => {
+        if (done) return
+        done = true
+        clearTimeout(timer)
+        peer.removeEventListener('iceconnectionstatechange', onIce)
+        peer.removeEventListener('connectionstatechange', onConn)
+        resolve(result)
+      }
+      const onIce = () => {
+        const s = peer.iceConnectionState
+        if (s === 'failed' || s === 'closed') finish('fail')
+      }
+      const onConn = () => {
+        if (peer.connectionState === 'failed' || peer.connectionState === 'closed') finish('fail')
+      }
+      peer.addEventListener('iceconnectionstatechange', onIce)
+      peer.addEventListener('connectionstatechange', onConn)
+      const timer = setTimeout(() => {
+        // chưa có audio_transport=webrtc từ edge → coi như fail để fallback
+        finish(audioTransport === 'webrtc' ? 'webrtc' : 'fail')
+      }, timeoutMs)
+
+      // poll audioTransport (edge event) — Svelte state đọc được trong closure
+      const poll = setInterval(() => {
+        if (audioTransport === 'webrtc') {
+          clearInterval(poll)
+          finish('webrtc')
+        }
+        if (done) clearInterval(poll)
+      }, 100)
+    })
+  }
+
+  async function startWsPcmFallback(stream: MediaStream) {
+    pcmCapture = new PcmCapture()
+    await pcmCapture.start((pcm) => {
+      if (eventsWs && eventsWs.readyState === WebSocket.OPEN && audioTransport !== 'webrtc') {
+        eventsWs.send(pcm)
+      }
+    }, stream)
+    // edge sẽ set audio_transport=websocket khi nhận chunk đầu
+  }
+
   async function startRecording() {
     error = ''
     summary = ''
     finals = []
     partial = ''
+    audioTransport = 'none'
     showTranscriptModal = false
     showSummaryModal = false
-    // Nếu model chưa trên GPU → session.open sẽ load (có thể mất vài chục giây)
     status = selectedLoaded ? 'starting' : 'loading-model'
     try {
       const session = await createSession(selectedModel, languageForApi(language))
@@ -148,19 +236,26 @@
       status = session.state
       await refreshHealth()
 
-      eventsWs = new WebSocket(wsUrl(`/api/sessions/${sessionId}/events`))
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        throw new Error(
+          'Trình duyệt chặn mic trên HTTP. Mở bằng HTTPS: https://new-home-server.tailae2496.ts.net:5180 (hoặc localhost).',
+        )
+      }
+
+      eventsWs = await openEventsWs(sessionId)
       eventsWs.onmessage = (msg) => {
+        if (typeof msg.data !== 'string') return
         try {
           pushEvent(JSON.parse(msg.data))
         } catch {
           /* ignore */
         }
       }
-
-      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-        throw new Error(
-          'Trình duyệt chặn mic trên HTTP. Mở bằng HTTPS: https://new-home-server.tailae2496.ts.net:5180 (hoặc localhost).',
-        )
+      eventsWs.onclose = () => {
+        if (recording) {
+          error = error || 'mất kết nối events — dừng ghi'
+          recording = false
+        }
       }
 
       localStream = await navigator.mediaDevices.getUserMedia({
@@ -172,19 +267,34 @@
         video: false,
       })
 
+      // 1) Thử WebRTC trước
+      status = 'connecting-audio'
       pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
       for (const track of localStream.getAudioTracks()) {
         pc.addTrack(track, localStream)
       }
-
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
       await waitIceComplete(pc)
       const answer = await sendOffer(sessionId, pc.localDescription!.toJSON())
       await pc.setRemoteDescription(answer)
 
-      recording = true
-      status = 'recording'
+      const webrtcResult = await waitWebRtcAudioOrFail(pc, WEBRTC_WAIT_MS)
+      if (webrtcResult === 'webrtc') {
+        // Theo dõi ICE đứt giữa chừng → fallback WS
+        pc.oniceconnectionstatechange = () => {
+          if (!recording || !pc) return
+          // chỉ failed (disconnected có thể tạm thời)
+          if (pc.iceConnectionState === 'failed') {
+            void fallbackToWebsocket('ICE failed — chuyển WebSocket')
+          }
+        }
+        recording = true
+        status = 'recording'
+        audioTransport = 'webrtc'
+      } else {
+        await fallbackToWebsocket('WebRTC không nối được — dùng WebSocket')
+      }
     } catch (e: any) {
       error = e?.message || String(e)
       status = 'error'
@@ -192,18 +302,26 @@
     }
   }
 
-  function waitIceComplete(peer: RTCPeerConnection) {
-    if (peer.iceGatheringState === 'complete') return Promise.resolve()
-    return new Promise<void>((resolve) => {
-      const check = () => {
-        if (peer.iceGatheringState === 'complete') {
-          peer.removeEventListener('icegatheringstatechange', check)
-          resolve()
-        }
+  async function fallbackToWebsocket(reason: string) {
+    if (audioTransport === 'websocket') return
+    // đóng PeerConnection; giữ mic stream để PcmCapture
+    if (pc) {
+      try {
+        pc.close()
+      } catch {
+        /* ignore */
       }
-      peer.addEventListener('icegatheringstatechange', check)
-      setTimeout(() => resolve(), 2000)
-    })
+      pc = null
+    }
+    if (!localStream) {
+      throw new Error('không có mic stream để fallback WebSocket')
+    }
+    await startWsPcmFallback(localStream)
+    recording = true
+    status = 'recording'
+    audioTransport = 'websocket'
+    // không gắn vào error (vẫn ghi được); chỉ ghi chú nhẹ qua status path
+    console.info(reason)
   }
 
   function applyTranscriptResult(result: { finals?: string[]; transcript?: string }) {
@@ -217,13 +335,21 @@
   }
 
   async function haltLocalMedia() {
+    if (pcmCapture) {
+      await pcmCapture.stop()
+      pcmCapture = null
+    }
+    if (pc) {
+      try {
+        pc.close()
+      } catch {
+        /* ignore */
+      }
+      pc = null
+    }
     if (localStream) {
       localStream.getTracks().forEach((t) => t.stop())
       localStream = null
-    }
-    if (pc) {
-      pc.close()
-      pc = null
     }
   }
 
@@ -270,6 +396,7 @@
   async function resetAll() {
     error = ''
     recording = false
+    audioTransport = 'none'
     await cleanupMedia(true)
     finals = []
     partial = ''
@@ -302,7 +429,7 @@
     <p class="text-xs tracking-[0.2em] text-[var(--accent)] uppercase">transcript-buddy</p>
     <h1 class="text-3xl font-semibold tracking-tight text-white sm:text-4xl">Realtime ASR</h1>
     <p class="max-w-2xl text-[var(--muted)]">
-      Mic → WebRTC → faster-whisper GPU → tóm tắt qwen3.5:4b khi Stop.
+      Mic → WebRTC (ưu tiên) → fallback WebSocket PCM → faster-whisper GPU → tóm tắt khi Stop.
     </p>
   </header>
 
@@ -403,6 +530,12 @@
 
         <div class="min-w-0 overflow-hidden rounded-md border border-[var(--border)] bg-[#121820] p-3 text-xs text-[var(--muted)]">
           <div>Status: <span class="text-[var(--text)]">{status}</span></div>
+          <div>
+            Audio:
+            <span class="text-[var(--text)]">
+              {audioTransport === 'none' ? '—' : audioTransport === 'webrtc' ? 'WebRTC' : 'WebSocket (fallback)'}
+            </span>
+          </div>
           <div class="break-all">
             Session: <span class="text-[var(--text)]">{sessionId || '—'}</span>
           </div>

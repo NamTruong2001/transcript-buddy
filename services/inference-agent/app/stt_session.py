@@ -16,6 +16,7 @@ from .config import (
     SILENCE_END_S,
 )
 from .models_catalog import list_local_models, resolve_realtime_model
+from .models_db import list_enabled_models
 from .stt_engine import POOL
 
 log = logging.getLogger("inference-agent.stt")
@@ -50,9 +51,14 @@ class SttSession:
         emit: EmitFn,
         language: str | None = None,
     ) -> SttSession:
-        available = {m["id"] for m in list_local_models()}
+        try:
+            available = {m["id"] for m in list_enabled_models()}
+        except Exception:
+            available = {m["id"] for m in list_local_models()}
+        if not available:
+            available = {m["id"] for m in list_local_models()}
         if model not in available:
-            raise ValueError(f"Model '{model}' not installed. Available: {sorted(available)}")
+            raise ValueError(f"Model '{model}' not installed/enabled. Available: {sorted(available)}")
         realtime = resolve_realtime_model(model, available)
         # warm models
         POOL.get(model)

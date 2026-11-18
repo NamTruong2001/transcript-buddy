@@ -16,6 +16,8 @@ build/
 # Models & caches (keep models/README.md tracked)
 models/**
 !models/README.md
+services/inference-agent/data/*.db
+services/inference-agent/data/*.db-*
 .deploy-stage/
 tb-deploy.zip
 tmp_session.json

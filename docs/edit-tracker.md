@@ -1,5 +1,23 @@
 # Edit tracker
 
+## 2026-11-18 — WebRTC ưu tiên + fallback WebSocket PCM
+
+- Thử WebRTC trước; chờ edge nhận frame thật (`audio_transport=webrtc`) tối đa ~6s.
+- ICE fail / timeout / ICE failed giữa chừng → đóng PC, gửi PCM s16le 16 kHz qua events WS.
+- Edge: `audio_transport` `webrtc|websocket` (không gửi trùng); event `audio_transport` xuống UI.
+
+## 2026-11-18 — Fix không có transcript khi nói (WebRTC ICE fail)
+
+- Nguyên nhân: edge-api trong Docker (`172.24.0.x`); ICE candidate pair → public IP FAIL → không có audio frame.
+- Mic path dự phòng: PCM qua `WS /api/sessions/{id}/events`.
+
+## 2026-11-16 — Xóa large-v3 + SQLite registry model
+
+- Xóa `models--Systran--faster-whisper-large-v3` (~3GB) khỏi disk.
+- Agent: SQLite nhỏ `services/inference-agent/data/models.db` — sync từ disk, bật/tắt model.
+- API: `GET /models` (enabled), `GET /models/all`, `POST /models/sync`, `PATCH /models/{id}`.
+- Edge: `POST /api/models/sync`. UI dropdown đọc API → đổi danh sách không cần rebuild web.
+
 ## 2026-11-16 — Thêm faster-whisper large-v3-turbo
 
 - Catalog nhận `large-v3-turbo` (HF `mobiuslabsgmbh/faster-whisper-large-v3-turbo`).

@@ -29,6 +29,13 @@ from .config import (  # noqa: E402
     PRELOAD_MODELS,
 )
 from .models_catalog import list_local_models  # noqa: E402
+from .models_db import (  # noqa: E402
+    init_db,
+    list_all_models,
+    list_enabled_models,
+    set_model_enabled,
+    sync_from_disk,
+)
 from .stt_engine import POOL  # noqa: E402
 from .stt_session import SttSession  # noqa: E402
 from .summarize import list_ollama_models, ollama_alive, summarize_transcript  # noqa: E402
@@ -66,6 +73,12 @@ async def lifespan(_app: FastAPI):
         PORT,
         DEVICE,
     )
+    try:
+        init_db()
+        synced = sync_from_disk()
+        log.info("STT model registry synced: %s", [m["id"] for m in synced])
+    except Exception:
+        log.exception("model DB sync failed — falling back to disk scan in /models")
     if PRELOAD_MODELS:
         try:
             loaded = _preload_available(PRELOAD_MODELS)
@@ -92,19 +105,28 @@ class SummarizeBody(BaseModel):
     model: str | None = None
 
 
+class ModelEnableBody(BaseModel):
+    enabled: bool = True
+
+
 @app.get("/health")
 async def health():
-    models = list_local_models()
-    ids = [m["id"] for m in models]
+    on_disk = list_local_models()
+    disk_ids = [m["id"] for m in on_disk]
+    try:
+        enabled = list_enabled_models()
+        enabled_ids = [m["id"] for m in enabled]
+    except Exception:
+        enabled_ids = disk_ids
     return {
         "ok": True,
         "service": "whisper-inference-backend",
         "host": HOST,
         "port": PORT,
         "device": DEVICE,
-        "models": len(models),
-        "model_ids": ids,
-        "models_on_disk": ids,
+        "models": len(enabled_ids),
+        "model_ids": enabled_ids,
+        "models_on_disk": disk_ids,
         "models_loaded": POOL.loaded(),
         "ollama": await ollama_alive(),
         "ollama_default_model": OLLAMA_MODEL,
@@ -128,11 +150,52 @@ async def ready():
 
 @app.get("/models")
 async def models(authorization: str | None = Header(default=None)):
+    """Danh sách STT đang bật — đọc từ SQLite (sync disk), UI không cần rebuild."""
     _check_token(authorization=authorization)
+    try:
+        catalog = list_enabled_models()
+        if not catalog:
+            catalog = sync_from_disk()
+    except Exception:
+        log.exception("model DB read failed; disk fallback")
+        catalog = list_local_models()
     return {
-        "models": list_local_models(),
+        "models": catalog,
         "loaded": POOL.loaded(),
+        "source": "db",
     }
+
+
+@app.get("/models/all")
+async def models_all(authorization: str | None = Header(default=None)):
+    """Mọi model trong registry (kể cả disabled)."""
+    _check_token(authorization=authorization)
+    return {"models": list_all_models(), "loaded": POOL.loaded()}
+
+
+@app.post("/models/sync")
+async def models_sync(authorization: str | None = Header(default=None)):
+    """Quét lại thư mục models/ và cập nhật SQLite — gọi sau khi tải/xóa model."""
+    _check_token(authorization=authorization)
+    try:
+        catalog = sync_from_disk()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"models": catalog, "synced": len(catalog)}
+
+
+@app.patch("/models/{model_id}")
+async def models_patch(
+    model_id: str,
+    body: ModelEnableBody,
+    authorization: str | None = Header(default=None),
+):
+    """Bật/tắt model trong registry (ẩn khỏi UI mà không xóa file)."""
+    _check_token(authorization=authorization)
+    row = set_model_enabled(model_id, body.enabled)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"model not in registry: {model_id}")
+    return row
 
 
 @app.get("/ollama/models")

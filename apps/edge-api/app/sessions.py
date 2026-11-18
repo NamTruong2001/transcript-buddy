@@ -28,6 +28,8 @@ class Session:
     finals: list[str] = field(default_factory=list)
     partial: str = ""
     summary: str = ""
+    # none | webrtc | websocket — tránh gửi PCM trùng khi fallback
+    audio_transport: str | None = None
 
 
 class SessionManager:
@@ -77,12 +79,54 @@ class SessionManager:
         log.info("session %s opened model=%s realtime=%s", sid, model, opened.get("realtime_model"))
         return session
 
+    async def _broadcast(self, session: Session, event: dict[str, Any]) -> None:
+        dead = []
+        for ws in session.event_clients:
+            try:
+                await ws.send_json(event)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            if ws in session.event_clients:
+                session.event_clients.remove(ws)
+
+    async def set_audio_transport(self, session: Session, transport: str) -> None:
+        if session.audio_transport == transport:
+            return
+        prev = session.audio_transport
+        session.audio_transport = transport
+        session.state = "recording"
+        log.info("session %s audio_transport %s → %s", session.id, prev, transport)
+        await self._broadcast(
+            session,
+            {
+                "type": "audio_transport",
+                "transport": transport,
+                "session_id": session.id,
+                "state": session.state,
+            },
+        )
+
+    async def ingest_ws_pcm(self, session: Session, pcm: bytes) -> None:
+        """PCM từ events WS (fallback). Ưu tiên hơn WebRTC nếu client chuyển sang WS."""
+        if not pcm:
+            return
+        if session.audio_transport != "websocket":
+            await self.set_audio_transport(session, "websocket")
+            # dừng pump WebRTC để không trùng audio
+            if session.audio_task:
+                session.audio_task.cancel()
+                session.audio_task = None
+        if session.agent:
+            await session.agent.send_pcm(pcm)
+
     async def attach_webrtc(self, session: Session, offer_sdp: str, offer_type: str = "offer") -> dict:
         if session.pc is not None:
             await session.pc.close()
 
         pc = RTCPeerConnection()
         session.pc = pc
+        webrtc_chunks = 0
 
         @pc.on("track")
         def on_track(track):
@@ -92,6 +136,15 @@ class SessionManager:
                 session.audio_task.cancel()
 
             async def sink(pcm: bytes) -> None:
+                nonlocal webrtc_chunks
+                if not pcm:
+                    return
+                # đã fallback sang WS → bỏ frame WebRTC
+                if session.audio_transport == "websocket":
+                    return
+                webrtc_chunks += 1
+                if webrtc_chunks == 1:
+                    await self.set_audio_transport(session, "webrtc")
                 if session.agent:
                     await session.agent.send_pcm(pcm)
 
@@ -107,7 +160,6 @@ class SessionManager:
             await asyncio.sleep(0.05)
         assert pc.localDescription is not None
         return {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}
-
     async def _halt_media(self, session: Session) -> None:
         if session.audio_task:
             session.audio_task.cancel()

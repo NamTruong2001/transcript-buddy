@@ -53,11 +53,20 @@ Model **không** nằm trong git (file nặng). Chúng được tải vào:
 | --- | --- | --- |
 | `tiny` | realtime partial text | [Systran/faster-whisper-tiny](https://huggingface.co/Systran/faster-whisper-tiny) |
 | `small` | final transcript (mặc định) | [Systran/faster-whisper-small](https://huggingface.co/Systran/faster-whisper-small) |
+| `large-v3-turbo` | final chất lượng cao, nhanh hơn large-v3 | [mobiuslabsgmbh/faster-whisper-large-v3-turbo](https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo) |
+
+Danh sách model trên UI lấy từ **SQLite nhỏ** trên agent (`services/inference-agent/data/models.db`), sync từ thư mục trên. Sau khi tải/xóa model:
+
+```powershell
+# quét lại disk → DB (không cần rebuild web)
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8100/models/sync -Headers @{ Authorization = "Bearer $env:AGENT_TOKEN" }
+# hoặc qua edge: POST /api/models/sync
+```
 
 Tải thêm model:
 
 ```powershell
-.\.venv\Scripts\python.exe .\scripts\download_models.py --models medium,large-v2
+.\.venv\Scripts\python.exe .\scripts\download_models.py --models medium,large-v2,large-v3-turbo
 ```
 
 Script transcription dùng `download_root=models/faster-whisper` nên không phụ thuộc cache global `~\.cache\huggingface`.

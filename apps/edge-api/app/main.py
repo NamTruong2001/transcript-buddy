@@ -12,6 +12,7 @@ from .agent_client import (
     agent_health,
     agent_list_models,
     agent_list_ollama_models,
+    agent_sync_models,
     agent_warmup,
 )
 from .config import CORS_ORIGINS, HOST, PORT
@@ -68,6 +69,15 @@ async def models():
         return {"models": await agent_list_models()}
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"agent unreachable: {exc}") from exc
+
+
+@app.post("/api/models/sync")
+async def models_sync():
+    """Sync STT model registry trên agent (sau khi tải/xóa model) — UI không cần rebuild."""
+    try:
+        return await agent_sync_models()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"agent sync failed: {exc}") from exc
 
 
 @app.get("/api/ollama/models")
@@ -232,20 +242,42 @@ async def delete_session(session_id: str):
 
 @app.websocket("/api/sessions/{session_id}/events")
 async def session_events(websocket: WebSocket, session_id: str):
+    """Events xuống UI + PCM binary fallback khi WebRTC ICE fail."""
     session = MANAGER.get(session_id)
     if not session:
         await websocket.close(code=4404)
         return
     await websocket.accept()
     session.event_clients.append(websocket)
-    await websocket.send_json({"type": "status", "state": session.state, "session_id": session_id})
+    await websocket.send_json(
+        {
+            "type": "status",
+            "state": session.state,
+            "session_id": session_id,
+            "audio_transport": session.audio_transport,
+        }
+    )
+    pcm_chunks = 0
     try:
         while True:
-            # keep alive / ignore client pings
-            await websocket.receive_text()
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            data = message.get("bytes")
+            if data:
+                pcm_chunks += 1
+                if pcm_chunks == 1:
+                    log.info("session %s first PCM via WS fallback (%s bytes)", session_id, len(data))
+                elif pcm_chunks % 200 == 0:
+                    log.info("session %s WS PCM chunks=%s", session_id, pcm_chunks)
+                await MANAGER.ingest_ws_pcm(session, data)
+                continue
+            # text: client keepalive / ignore
     except WebSocketDisconnect:
         pass
     finally:
+        if pcm_chunks:
+            log.info("session %s WS audio closed after %s chunks", session_id, pcm_chunks)
         if websocket in session.event_clients:
             session.event_clients.remove(websocket)
 

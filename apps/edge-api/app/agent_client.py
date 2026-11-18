@@ -45,6 +45,16 @@ async def agent_list_models() -> list[dict[str, Any]]:
         return resp.json().get("models") or []
 
 
+async def agent_sync_models() -> dict[str, Any]:
+    """Quét lại disk trên agent và cập nhật SQLite registry."""
+    base = http_base_from_ws(AGENT_URL)
+    headers = {"Authorization": f"Bearer {AGENT_TOKEN}"}
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(f"{base}/models/sync", headers=headers)
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def agent_summarize(transcript: str, model: str | None = None) -> dict[str, Any]:
     """HTTP fallback when the per-session agent WebSocket is already closed."""
     base = http_base_from_ws(AGENT_URL)

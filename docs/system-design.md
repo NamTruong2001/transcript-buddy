@@ -59,13 +59,15 @@ Process **riêng** listen TCP port (mặc định **8100**). Edge Linux chỉ gi
 | --- | --- |
 | `8100` | Bind Whisper backend |
 | `GET /health`, `GET /ready` | Sống / sẵn sàng |
-| `GET /models`, `POST /warmup` | Catalog + preload GPU (thủ công; mặc định không preload lúc boot) |
+| `GET /models`, `GET /models/all`, `POST /models/sync`, `PATCH /models/{id}` | Catalog STT từ SQLite (sync disk; bật/tắt) |
+| `POST /warmup` | Preload GPU (thủ công; mặc định không preload lúc boot) |
 | `WS /ws` | PCM + session control |
 | `11434` | Ollama (process khác, summarize) |
 
 - Startup: Windows Service `TranscriptWhisper` (`service/install.ps1`) hoặc `run.ps1` (dev)
 - Công tắc: `sc start/stop TranscriptWhisper` (không cần GUI)
 - faster-whisper CUDA từ `models/faster-whisper`
+- Registry: SQLite `services/inference-agent/data/models.db` — UI lấy list qua API, không rebuild web
 - Stop session → Ollama `qwen3.5:4b` summarize
 - Chi tiết: `services/inference-agent/README.md`
 
@@ -86,17 +88,20 @@ Auth: `Authorization: Bearer $AGENT_TOKEN`.
 | Endpoint | Mục đích |
 | --- | --- |
 | `GET /api/health` | edge + ping agent |
-| `GET /api/models` | danh sách model từ agent |
+| `GET /api/models` | danh sách model enabled từ agent DB |
+| `POST /api/models/sync` | quét lại disk trên agent → cập nhật SQLite |
 | `POST /api/sessions` | `{ model }` → `session_id` |
-| `POST /api/sessions/{id}/webrtc/offer` | SDP offer → answer |
-| `WS /api/sessions/{id}/events` | partial/final/summary/status |
+| `POST /api/sessions/{id}/webrtc/offer` | SDP offer → answer (ưu tiên) |
+| `WS /api/sessions/{id}/events` | events xuống UI + binary PCM fallback |
 | `POST /api/sessions/{id}/stop` | dừng + summarize |
 | `DELETE /api/sessions/{id}` | cleanup |
 
+Audio: **WebRTC trước**; nếu ICE fail/timeout → PCM qua events WS. Edge gắn `audio_transport` để tránh trùng.
+
 ## 6. STT & Summarize
 
-- STT: faster-whisper `float16` CUDA; whitelist từ disk
-- Partial: dùng `tiny` khi final model là `large-v3` / `medium`; ngược lại dùng cùng model hoặc `tiny`
+- STT: faster-whisper `float16` CUDA; whitelist từ SQLite (sync disk)
+- Partial: dùng `tiny` khi final model là `large-v3` / `large-v3-turbo` / `medium`; ngược lại dùng cùng model hoặc `tiny`
 - VAD: Silero ONNX / energy VAD trên agent
 - Summarize: Ollama `qwen3.5:4b`, timeout 60s, output markdown ngắn
 

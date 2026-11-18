@@ -5,6 +5,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 MODELS_DIR = Path(os.environ.get("MODELS_DIR", ROOT / "models" / "faster-whisper"))
+# SQLite nhỏ: registry model STT (sync từ disk) — UI lấy qua API, không rebuild web
+MODELS_DB_PATH = Path(
+    os.environ.get(
+        "MODELS_DB_PATH",
+        ROOT / "services" / "inference-agent" / "data" / "models.db",
+    )
+)
 
 HOST = os.environ.get("AGENT_HOST", "0.0.0.0")
 PORT = int(os.environ.get("AGENT_PORT", "8100"))
@@ -31,4 +38,5 @@ SAMPLE_RATE = 16000
 PARTIAL_EVERY_S = float(os.environ.get("PARTIAL_EVERY_S", "0.8"))
 SILENCE_END_S = float(os.environ.get("SILENCE_END_S", "0.7"))
 MIN_UTTERANCE_S = float(os.environ.get("MIN_UTTERANCE_S", "0.4"))
-ENERGY_THRESHOLD = float(os.environ.get("ENERGY_THRESHOLD", "400.0"))
+# RMS trên int16; hạ nhẹ vì mic browser + noiseSuppression thường nhỏ hơn mic raw
+ENERGY_THRESHOLD = float(os.environ.get("ENERGY_THRESHOLD", "250.0"))

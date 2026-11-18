@@ -9,11 +9,16 @@ Process riêng trên máy NVIDIA. **Edge Linux chỉ nói chuyện với process
 | `8100` TCP | Bind mặc định (`AGENT_HOST`/`AGENT_PORT`) |
 | `GET /health` | Service sống + model trên disk + model đã load GPU |
 | `GET /ready` | Sẵn sàng nhận session (sau preload nếu có) |
-| `GET /models` | Danh sách model local (Bearer token) |
+| `GET /models` | Model **enabled** từ SQLite (Bearer token) |
+| `GET /models/all` | Toàn bộ registry (kể cả disabled) |
+| `POST /models/sync` | Quét `models/faster-whisper` → cập nhật DB |
+| `PATCH /models/{id}` | Bật/tắt model (`{"enabled":false}`) |
 | `POST /warmup` | Load thêm model vào GPU qua HTTP |
 | `WS /ws` | Data plane: JSON control + binary PCM 16 kHz |
 
 Ollama (`11434`) là process khác, cũng qua port local — summarize sau `session.stop`.
+
+Registry STT: SQLite nhỏ `data/models.db` (gitignore). Sau khi tải/xóa weight trên disk, gọi `POST /models/sync` — UI đọc `GET /models` nên **không cần rebuild web**.
 
 ## Windows Service (công tắc không cần GUI)
 
